@@ -29,7 +29,7 @@
 	Console output with results from script execution
 
 .EXAMPLE 
-	PS> Revoke-PKICertificate.ps1 -SerialNumber 'abcd1234' -CA myca.domain.com -Reason CeaseOfOperation
+	PS> Revoke-PKICertificate.ps1 -SerialNumber 'abcd1234' -CA myca1.domain.com, myca2.domain.com -Reason CeaseOfOperation
 
 .EXAMPLE
 	PS> Revoke-PKICertificate.ps1 -RequestorName 'Domain\User' -Reason AffiliationChanged
@@ -44,9 +44,9 @@ Param (
 	[Parameter(ParameterSetName = "SerialNumber", Mandatory = $false, HelpMessage = "Enter serial number of certificate to be revoked.")]
 	[Alias("SN")]
 	[String]$SerialNumber,
-	[Parameter(ParameterSetName = "RequestorName", Mandatory = $false, HelpMessage = "Enter FQDN of Certificate Authority. EG: myca.domain.com")]
+	[Parameter(ParameterSetName = "RequestorName", Mandatory = $true, HelpMessage = "Enter FQDN of Certificate Authority. EG: myca.domain.com")]
 	[Parameter(ParameterSetName = "SerialNumber")]
-	[String]$CA,
+	[Array]$CA,
 	[Parameter(ParameterSetName = "RequestorName", Mandatory = $true, HelpMessage = "Enter reason why certificate is being revoked.")]
 	[Parameter(ParameterSetName = "SerialNumber")]
 	[ValidateSet('Unspecified', 'KeyCompromise', 'CACompromise', 'AffiliationChanged', 'Superseded', 'CeaseOfOperation')]
@@ -115,31 +115,11 @@ try
 {
 	foreach ($CA in $CAs)
 	{
-		Connect-CA -ComputerName $CA
-		[Array]$Certs += Get-IssuedRequest -CertificationAuthority $CA -Filter $filter
+		Write-Output ("Connecting to and searching database on $($CA)")
+		[Array]$Certs = Get-CertificationAuthority -ComputerName $CA | Get-IssuedRequest -Filter $filter
 		
-		if ($Certs.Count -eq 1)
+		if ($Certs.count -gt 0)
 		{
-			try
-			{
-				$RequestID = $Certs.RequestID
-				Get-IssuedRequest -CertificationAuthority $CA -filter "RequestID -eq $RequestID" | Revoke-Certificate -Reason $Reason -RevocationDate (Get-Date)
-				
-				if ($?)
-				{
-					Get-RevokedRequest -CertificationAuthority $CA -Filter $filter | Select-Object -Property RequestID, 'Request.RevokedWhen', 'Request.RevokedReason', CommonName, SerialNumber, CertificateTemplate
-					Get-CertificationAuthority -ComputerName $CA | Publish-CRL -DeltaOnly
-				}
-			}
-			catch
-			{
-				$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
-				Write-Error $errorMessage -ErrorAction Continue
-			}
-		}
-		else
-		{
-			
 			try
 			{
 				$Certs | foreach {
@@ -152,21 +132,29 @@ try
 						Get-CertificationAuthority -ComputerName $CA | Publish-CRL -DeltaOnly
 					}
 				}
+				$Certs = $RequestID = $null
 			}
 			catch
 			{
 				$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
 				Write-Error $errorMessage -ErrorAction Continue
+				$Error.Clear()
 			}
 			
 		}
-		$CA = $Certs = $RequestID = $null
+		else
+		{
+			Write-Output ("No certificates were found related to the input parameters.")
+		}
+		
+		$CA = $null
 	}
 }
 catch
 {
 	$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
 	Write-Error $errorMessage -ErrorAction Continue
+	$Error.Clear()
 }
 
 

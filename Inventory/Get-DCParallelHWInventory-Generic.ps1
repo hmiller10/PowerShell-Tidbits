@@ -426,7 +426,7 @@ Function Get-MyNewCimSession
 
 
 #region Script
-#Beegin Script
+#Begin Script
 $Error.Clear()
 $dtmFormatString = "yyyy-MM-dd HH:mm:ss"
 $dtmScriptStartTimeUTC = Utc-Now
@@ -438,7 +438,7 @@ $scriptName = $myInv.ScriptName
 $stopWatch = [System.Diagnostics.Stopwatch]::StartNew()
 $dtmScriptStartTimeUTC = Utc-Now
 $dtmFormatString = "yyyy-MM-dd HH:mm:ss"
-$transcriptFileName = "{0}-{1}-{2}-Transcript.txt" -f $dtmScriptStartTimeUTC.ToString("yyyy-MM-dd_HH-mm-ss"), "DCInventory", $transactionID
+$transcriptFileName = "{0}-{1}-Transcript.txt" -f $dtmScriptStartTimeUTC.ToString("yyyy-MM-dd_HH-mm-ss"), "DCInventory"
 
 $workingDir = "{0}\{1}" -f $scriptDir, "workingDir"
 Check-Path -Path $workingDir -PathType Folder
@@ -451,12 +451,12 @@ Check-Path -Path $DCRptFldr -PathType Folder
 
 # Start transcript file
 Start-Transcript ("{0}\{1}" -f $transcriptDir, $transcriptFileName)
-Write-Verbose -Message ("[{0} UTC] [SCRIPT] Beginning execution of script. 	:  " -f $dtmScriptStartTimeUTC.ToString($dtmFormatString)) -Verbose
-Write-Verbose -Message ("[{0} UTC] [SCRIPT] Script Name             		:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $scriptName) -Verbose
-Write-Verbose -Message ("[{0} UTC] [SCRIPT] Log directory path  			:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $logFolder) -Verbose
-Write-Verbose -Message ("[{0} UTC] [SCRIPT] Report directory path     		:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $DCRptFldr) -Verbose
-Write-Verbose -Message ("[{0} UTC] [SCRIPT] Working directory path     		:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $workingDir) -Verbose
-Write-Verbose -Message ("[{0} UTC] [SCRIPT] Transcript directory path     	:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $transcriptDir) -Verbose
+Write-Verbose -Message ("[{0} UTC] [SCRIPT] Beginning execution of script." -f $dtmScriptStartTimeUTC.ToString($dtmFormatString)) -Verbose
+Write-Verbose -Message ("[{0} UTC] [SCRIPT] Script Name:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $scriptName) -Verbose
+Write-Verbose -Message ("[{0} UTC] [SCRIPT] Log directory path:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $logFolder) -Verbose
+Write-Verbose -Message ("[{0} UTC] [SCRIPT] Report directory path:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $DCRptFldr) -Verbose
+Write-Verbose -Message ("[{0} UTC] [SCRIPT] Working directory path:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $workingDir) -Verbose
+Write-Verbose -Message ("[{0} UTC] [SCRIPT] Transcript directory path:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $transcriptDir) -Verbose
 
 $objComputerDomain = [System.DirectoryServices.ActiveDirectory.Domain]::GetComputerDomain()
 $AuthenticationType = [System.DirectoryServices.AuthenticationTypes]::Signing -bor [System.DirectoryServices.AuthenticationTypes]::Sealing -bor [System.DirectoryServices.AuthenticationTypes]::Secure

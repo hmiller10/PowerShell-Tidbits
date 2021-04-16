@@ -69,7 +69,7 @@ $certProps = @("RawRequest","RequestID", "Request.RequesterName", "CommonName", 
 $pendingRequests = @()
 Add-Type -Assembly System.Windows.Forms
 Add-Type -Assembly System.Drawing
-
+$srvHostName = [System.Net.Dns]::GetHostByName("LocalHost").HostName
 
 
 
@@ -78,6 +78,25 @@ Add-Type -Assembly System.Drawing
 #Script
 try
 {
+	if ($srvHostName -eq $CA)
+	{
+		$caServerService = (Get-Service -Name "CertSvc").Status
+		if ($caServerService -ne 'Running') { Start-Service -Name "Certsvc" }
+		if ($? -eq $true) { Continue }
+		else { exit }
+	}
+	else
+	{
+		$caServerService = (Get-Service -Name "CertSvc" -ComputerName $CA).Status
+		if ($caServerService -ne 'Running')
+		{
+			Invoke-Command -ComputerName $CA -ScriptBlock {
+				Start-Service -Name "CertSvc"; if ($? -eq $true) { Continue }
+				else { exit }
+			}
+		}
+	}
+	
 	$pendingRequests = Get-PendingRequest -CertificationAuthority $CA
 	
 	if ($pendingRequests.Count -gt 0)

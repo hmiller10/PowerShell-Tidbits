@@ -63,7 +63,6 @@ Catch
 #Region Variables
 $rootTasks = @()
 $iamTasks = @()
-$deloitteTasks = @()
 $rootTaskOutput = "C:\MigrationInfo\$ComputerName\rootTasks"
 $iamTaskOutput = "C:\MigrationInfo\$ComputerName\iamTasks"
 $deloitteTaskOutput = "C:\MigrationInfo\$ComputerName\deloitteTasks"
@@ -76,8 +75,6 @@ $deloitteTaskOutput = "C:\MigrationInfo\$ComputerName\deloitteTasks"
 [Array]$rootTasks = Get-ScheduledTask -TaskName * -TaskPath "\"-ErrorAction Continue | Where-Object { $_.State -eq "Ready" }
 
 [Array]$iamTasks = Get-ScheduledTask -TaskName * -Taskpath "\IAM\" -ErrorAction Continue | Where-Object { $_.State -eq "Ready" }
-
-[Array]$deloitteTasks = Get-ScheduledTask -TaskName * -Taskpath "\Deloitte\" -ErrorAction Continue | Where-Object { $_.State -eq "Ready" }
 
 If ( ( Test-Path -Path "C:\MigrationInfo\$ComputerName" -PathType Container ) -eq $false ) { New-Item -Path "C:\MigrationInfo\$ComputerName" -ItemType Directory -Force }
 
@@ -105,19 +102,6 @@ If ( $iamTasks.Count -gt 0 )
 		$taskPath = ($task).TaskPath
 		[String]$taskXML = Export-ScheduledTask -TaskName $taskName -TaskPath $taskPath
 		$taskXML | Out-File -FilePath "$iamTaskOutput\$taskName.xml"
-	}
-}
-
-#Export tasks under \Deloitte\ folder(s)
-If ( $deloitteTasks.Count -gt 0 )
-{
-	If ( ( Test-Path -Path $deloitteTaskOutput -PathType Container ) -eq $false ) { New-Item -Path $deloitteTaskOutput -ItemType Directory -Force }
-	ForEach ( $task in $deloitteTasks )
-	{
-		$taskName = ($task).TaskName
-		$taskPath = ($task).TaskPath
-		[String]$taskXML = Export-ScheduledTask -TaskName $taskName -TaskPath $taskPath
-		$taskXML | Out-File -FilePath "$deloitteTaskOutput\$taskName.xml"
 	}
 }
 

@@ -82,7 +82,7 @@ ColumnName,DataType
 "@
 
 #Functions
-Function Make-Table { #Begin function to dynamically build data table and add columns
+Function Add-DataTable { #Begin function to dynamically build data table and add columns
   	[CmdletBinding()]
     Param
     (
@@ -105,9 +105,9 @@ Function Make-Table { #Begin function to dynamically build data table and add co
 	End {
 		Return ,$dt
 	}
-}#end function Make-Table
+}#end function Add-DataTable
 
-Function Check-Path {#Begin function to check path variable and return results
+Function Test-PathExists {#Begin function to check path variable and return results
  	[CmdletBinding()]
     Param
     (
@@ -119,7 +119,7 @@ Function Check-Path {#Begin function to check path variable and return results
     
     Switch ( $PathType )
     {
-    	File
+    		File
 			{
 		   		If ( ( Test-Path -Path $Path -PathType Leaf ) -eq $true )
 				{
@@ -148,11 +148,11 @@ Function Check-Path {#Begin function to check path variable and return results
 				}
 			}
 	}
-}#end function Check-Path
+}#end function Test-PathExists
 
-Function Utc-Now {#Begin function to get current date and time in UTC format
+Function Get-UtcTime {#Begin function to get current date and time in UTC format
 	[System.DateTime]::UtcNow
-}#End function Utc-Now
+}#End function Get-UtcTime
 
 Function Get-FileDate {#Begin function to get date and time in long format
 	(Get-Date).ToString('yyyy-MM-dd-hh:mm:ss')
@@ -199,7 +199,7 @@ $scriptName = $myInv.ScriptName
 
 $trustTblName = "$($forestName)_Domain_Trust_Info"
 $trustHeaders = ConvertFrom-Csv -InputObject $trustHeadersCsv
-$trustTable = Make-Table -TableName $trustTblName -ColumnArray $trustHeaders
+$trustTable = Add-DataTable -TableName $trustTblName -ColumnArray $trustHeaders
 
 $domCount = 1
 ForEach ($Domain in $Domains)
@@ -419,7 +419,7 @@ ForEach ($Domain in $Domains)
 #Save output
 #Check required folders and files exist, create if needed
 $rptFolder = 'E:\Reports'
-Check-Path -Path $rptFolder -PathType Folder
+Test-PathExists -Path $rptFolder -PathType Folder
 
 
 $wsName = "AD Trust Configuration"

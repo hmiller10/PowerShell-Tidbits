@@ -40,7 +40,7 @@ $firstdayofpreviousmonth = (Get-Date -Year $currentYear -Month $currentMonth -Da
 
 #Functions
 
-Function Check-Path {#Begin function to check path variable and return results
+Function Test-PathExists {#Begin function to check path variable and return results
 	[CmdletBinding()]
 	Param
 	(
@@ -76,7 +76,7 @@ Function Check-Path {#Begin function to check path variable and return results
 				}
 			}
 	}
-}#end function Check-Path
+}#end function Test-PathExists
 
 
 function Get-NetFrameWork45OrHigherInstalled
@@ -138,7 +138,7 @@ function Zip-File
 
 #Script
 
-Check-Path -Path $logArchives -PathType Folder
+Test-PathExists -Path $logArchives -PathType Folder
 
 # Get the IIS log file top level folder, then process the W3SVC* log files folder for each site
 
@@ -161,14 +161,15 @@ foreach ( $site In $colWebSites )
 	$iisLogsFolderPath += "{0}{1}{2}" -f "\","W3SVC", $site.id
 	
 	# add log file to a zip file and delete log file
-	$colLogFiles = Get-ChildItem -Path $iisLogsFolderPath -Filter *.log	| Where { ( $_.CreationTime.Month -eq $previousMonth ) -and ( $_.CreationTime.Year -eq $currentYear ) }
+	$colLogFiles = Get-ChildItem -Path $iisLogsFolderPath -Filter *.log	| Where-Object { ( $_.CreationTime.Month -eq $previousMonth ) -and ( $_.CreationTime.Year -eq $currentYear ) }
 	
 	$logArchiveFileName = "{0}{1}_{2}_{3}_{4}.{5}" -f "W3SVC", $site.id, $currentYear, $previousmonth, "IISLogs", "zip"
 	$logArchiveFile = "{0}\{1}" -f $logArchives, $logArchiveFileName
 
 	if ( $colLogFiles )
 	{
-		foreach( $file In $colLogFiles ){
+		ForEach ($file In $colLogFiles)
+		{
 
 			Write-Host ("Processing file for zip: {0}" -f $file.FullName.ToString())
 			$FileToCompress = $file.FullName.ToString()
@@ -200,7 +201,6 @@ foreach ( $site In $colWebSites )
 			catch
 			{
 				Write-Verbose ("[{0} UTC] [SCRIPT] Error compressing file: {1}" -f [datetime]::UtcNow.ToString($dtmFormatString), $Error[0].Exception.Message) -Verbose
-				$Error.Clear()
 			}
 
 			# before deleting the log file, make sure that the zip file contains the log file entry

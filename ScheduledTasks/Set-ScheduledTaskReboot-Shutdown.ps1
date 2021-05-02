@@ -51,13 +51,13 @@ THE USER.
 
 [CmdletBinding()]
 Param (
-	[Parameter(Mandatory=$true,Position=0,ValueFromPipeline=$true,HelpMessage="Specify the time the task should execute. Format - ""yyyy,MM,dd,HH,mm,ss""")]
+	[Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true, HelpMessage = "Specify the time the task should execute. Format - ""yyyy,MM,dd,HH,mm,ss""")]
 	$TriggerTime,
-	[Parameter(Mandatory=$true,Position=1,ValueFromPipeline=$true,HelpMessage="Specify the length of the outage in hours.")]
+	[Parameter(Mandatory = $true, Position = 1, ValueFromPipeline = $true, HelpMessage = "Specify the length of the outage in hours.")]
 	[String]$OutageDuration,
-	[Parameter(ParameterSetName = 'Reboot',Mandatory=$true,Position=2,ValueFromPipeline=$true,HelpMessage="Use this parameter to reboot the computer.")]
+	[Parameter(ParameterSetName = 'Reboot', Mandatory = $true, Position = 2, ValueFromPipeline = $true, HelpMessage = "Use this parameter to reboot the computer.")]
 	[Switch]$R,
-	[Parameter(ParameterSetName = 'Shutdown',Mandatory=$true,Position=3,ValueFromPipeline=$true,HelpMessage="Use this parameter to shutdown the computer.")]
+	[Parameter(ParameterSetName = 'Shutdown', Mandatory = $true, Position = 3, ValueFromPipeline = $true, HelpMessage = "Use this parameter to shutdown the computer.")]
 	[Switch]$S
 )
 
@@ -67,28 +67,26 @@ Param (
 
 #Begin script
 # note: trigger time is formatted as - System.DateTime(year, month, day, hours, minutes, seconds)
-$TriggerTime = [DateTime]::ParseExact($TriggerTime, "yyyy,MM,dd,HH,mm,ss", $null)
+$TriggerTime = [DateTime]::ParseExact($TriggerTime, "yyyy,MM,dd,HH,mm,ss", $null)
 # note: uncomment the other trigger time if setting up the scheduled task across multiple systems to happen at the same UTC time - time is auto converted to local system time
 #$TriggerTime = $TriggerTime.ToLocalTime()
 
 
 $params1 = @{
-		TriggerTime          = $TriggerTime
-		OutageDurationHours  = $OutageDuration
-		RunAsUser            = "SYSTEM"
-	}
+	TriggerTime	     = $TriggerTime
+	OutageDurationHours = $OutageDuration
+	RunAsUser		     = "SYSTEM"
+}
 
-$params2 = @{}
+$params2 = @{ }
 
-#$evtCommand = Get-WinEvent -FilterHashtable @{"logname"="System";"ID"="6005"} | Sort-Object timecreated -Descending | Select-Object -First 1
-
-if ( $PSBoundParameters.ContainsKey('R') )
+If ($PSBoundParameters.ContainsKey('R'))
 {
 	$params1.ScheduledTaskName = "Scheduled Reboot"
 	$params1.Args = '-NoProfile -NonInteractive -Windowstyle Hidden -ExecutionPolicy RemoteSigned -Command "& {Restart-Computer -Force}"'
 	$params2.ScheduledTaskName = "Scheduled Reboot - Get DC Health"
 }
-elseif ( $PSBoundParameters.ContainsKey('S') )
+ElseIf ($PSBoundParameters.ContainsKey('S'))
 {
 	$params1.ScheduledTaskName = "Scheduled Shutdown"
 	$params1.Args = '-NoProfile -NonInteractive -Windowstyle Hidden -ExecutionPolicy RemoteSigned -Command "& {Stop-Computer -Force}"'
@@ -99,22 +97,22 @@ $colActions1 = New-Object System.Collections.ArrayList
 $params1ScheduledTaskAction = @{
 	Execute  = "EventCreate.exe"
 	Argument = ('/L Application /SO MMSchedule /T Information /ID {0} /d "{1}"' -f $params1.OutageDurationHours, $params1.ScheduledTaskName)
-}    
+}
 $action = New-ScheduledTaskAction @params1ScheduledTaskAction
 [void]$colActions1.Add($action)
 
 $params1ScheduledTaskAction = @{
-	Execute  = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+	Execute  = "powershell.exe"
 	Argument = $params1.Args
-}    
+}
 $action = New-ScheduledTaskAction @params1ScheduledTaskAction
 [void]$colActions1.Add($action)
 
 $colActions2 = New-Object System.Collections.ArrayList
 $params2ScheduledTaskAction = @{
-	Execute  = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+	Execute  = "powershell.exe"
 	Argument = '-NoProfile -ExecutionPolicy RemoteSigned -File "E:\Scripts\Get-DCHealth.ps1"'
-}    
+}
 $action = New-ScheduledTaskAction @params2ScheduledTaskAction
 [void]$colActions2.Add($action)
 
@@ -124,14 +122,14 @@ $trigger1 = New-ScheduledTaskTrigger -Once -At $params1.TriggerTime
 $trigger2 = New-ScheduledTaskTrigger -AtStartup
 
 $paramsScheduledTaskSettings = @{
-	Compatibility           = "Win7"
-	DisallowDemandStart     = $false
-	Disable                 = $false
-	AllowStartIfOnBatteries = $false
+	Compatibility		       = "Win7"
+	DisallowDemandStart	       = $false
+	Disable			       = $false
+	AllowStartIfOnBatteries    = $false
 	DontStopIfGoingOnBatteries = $true
-	DontStopOnIdleEnd		   = $true
-	StartWhenAvailable         = $true
-
+	DontStopOnIdleEnd	       = $true
+	StartWhenAvailable	       = $true
+	
 }
 
 $settingsSet = New-ScheduledTaskSettingsSet @paramsScheduledTaskSettings

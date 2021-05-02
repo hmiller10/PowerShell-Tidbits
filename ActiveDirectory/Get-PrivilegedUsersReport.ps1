@@ -102,15 +102,15 @@ Add-Type -AssemblyName "System.IO.Compression.FileSystem"
 #EndRegion
 
 #Region Functions
-Function Check-Path {#Begin function to check path variable and return results
- 	[CmdletBinding()]
-    Param
-    (
-        [Parameter(Mandatory,Position=0)]
-        [String]$Path,
-        [Parameter(Mandatory,Position=1)]
-        $PathType
-    )
+Function Test-PathExists {#Begin function to check path variable and return results
+	[CmdletBinding()]
+	Param
+	(
+	   [Parameter(Mandatory,Position=0)]
+	   [String]$Path,
+	   [Parameter(Mandatory,Position=1)]
+	   $PathType
+	)
     
     Switch ( $PathType )
     {
@@ -139,7 +139,7 @@ Function Check-Path {#Begin function to check path variable and return results
 				}
 			}
 	}
-}#end function Check-Path
+}#end function Test-PathExists
 
 Function Get-MyInvocation {#Begin function to get $MyInvocation information
     Return $MyInvocation
@@ -173,9 +173,9 @@ Function Get-ReportDate {#Begin function get report execution date
 	Get-Date -Format "yyyy-MM-dd"
 }#End function Get-ReportDate
 
-Function Utc-Now {#Begin function to get date and time in UTC format
+Function Get-UtcTime {#Begin function to get date and time in UTC format
 	[System.DateTime]::UtcNow
-}#End function Utc-Now
+}#End function Get-UtcTime
 
 Function Get-SmtpServer {#Begin function to get SMTP server for AD forest
 	[CmdletBinding()]
@@ -188,14 +188,9 @@ Function Get-SmtpServer {#Begin function to get SMTP server for AD forest
 	Begin {}
 	Process {
 		Switch -Wildcard ($Domain){
-			'*dmz.dtt' {$smtpServer = "appmail.dmz.dtt"}
-			'dmz.fa' {$smtpServer = "10.246.65.208"}
-			'*fantasia.qa' {$smtpServer = "appmail.ame.fantasia.qa"}
-			'*dttplatform.dev' {$smtpServer = "dttdevmail.us.dttplatform.dev"}
-			'us.ead.dev' {$smtpServer = "appmail.us.ead.dev"}
-			'ead.dev' {$smtpServer = "dttdevmail.us.dttplatform.dev"}
-			
-			default {$smtpserver = "appmail.atrema.deloitte.com"}
+			'*domain.local' {$smtpServer = "appmail.domain.local"}
+			'domain.lab' {$smtpServer = "appmail.domain.lab"}
+			default {$smtpserver = "mail.domain.com"}
 		}
 	}
 	End {
@@ -219,7 +214,7 @@ Function Send-SmtpRelayMessage {
 
 		[Parameter(Mandatory = $true)]
 		$From,
-		
+
 		[Parameter(Mandatory = $false)]
 		$ReplyTo,
 
@@ -235,12 +230,12 @@ Function Send-SmtpRelayMessage {
 		[Parameter(Mandatory = $false)]
 		$Port = 25,
 
-        [Parameter(Mandatory = $false)]
-        $InlineImageAttachments,
+		[Parameter(Mandatory = $false)]
+		$InlineImageAttachments,
 
-        [Parameter(Mandatory = $false)]
-        $Attachments
-	)
+		[Parameter(Mandatory = $false)]
+		$Attachments
+		)
 
 
     $objMailMessage = New-Object System.Net.Mail.MailMessage
@@ -250,7 +245,7 @@ Function Send-SmtpRelayMessage {
     $objSmtpClient.Port = $port
 
     ForEach ( $recipient in $To ) { $objMailMessage.To.Add((New-Object System.Net.Mail.MailAddress($recipient))) }
-    ForEach ( $recipient in $Cc ) { $objMailMessage.Cc.Add((New-Object System.Net.Mail.MailAddress($recipient))) }
+    if ($PSBoundParameters.ContainsKey('CC')) { ForEach ( $recipient in $Cc ) { $objMailMessage.Cc.Add((New-Object System.Net.Mail.MailAddress($recipient))) } }
     $objMailMessage.From = $From
     $objMailMessage.Sender = $From
     $objMailMessage.ReplyTo = $ReplyTo
@@ -278,7 +273,7 @@ Function Send-SmtpRelayMessage {
         $objMailMessage.Attachments.Add($objAttachment)
     }
 
-    $objSmtpClient.Send($objMailMessage)
+	$objSmtpClient.Send($objMailMessage)
 
 	$objAttachment.Dispose()
 	$objMailMessage.Dispose()
@@ -313,12 +308,12 @@ Function Get-UserAccountAttribs	{########################### Function to Calcula
 	Param($objADUser,$parentGroup)
 	
 	$objADUser = $objADUser.replace("/","\/")
-    $adsiEntry = New-Object directoryservices.directoryentry("LDAP://$objADUser")
-    $adsiSearcher = New-Object directoryservices.directorysearcher($adsientry)
-    $adsiSearcher.pagesize=1000
-    $adsiSearcher.searchscope="base"
+	$adsiEntry = New-Object directoryservices.directoryentry("LDAP://$objADUser")
+	$adsiSearcher = New-Object directoryservices.directorysearcher($adsientry)
+	$adsiSearcher.pagesize=1000
+	$adsiSearcher.searchscope="base"
 	$adsiSearcher.ServerTimeLimit = 600
-    $colUsers=$adsiSearcher.findall()
+	$colUsers=$adsiSearcher.findall()
 	ForEach($objuser in $colUsers)
 	{
 		$dn = $objuser.properties.item("distinguishedname")
@@ -505,7 +500,7 @@ $colOfDNs
 $Error.Clear()
 #Start Function timer, to display elapsed time for function. Uses System.Diagnostics.Stopwatch class - see here: https://msdn.microsoft.com/en-us/library/system.diagnostics.stopwatch(v=vs.110).aspx 
 $stopWatch = [System.Diagnostics.Stopwatch]::StartNew()
-$dtmScriptStartTimeUTC = Utc-Now
+$dtmScriptStartTimeUTC = Get-UtcTime
 $transcriptFileName     = "{0}-{1}-Transcript.txt" -f $dtmScriptStartTimeUTC.ToString("yyyy-MM-dd_HH.mm.ss"), "Privileged-Users-Report"
 
 $myInv = Get-MyInvocation
@@ -513,21 +508,21 @@ $scriptDir = $myInv.PSScriptRoot
 $scriptName = $myInv.ScriptName
 
 #Check required folders and files exist, create if needed
-Check-Path -Path $rptFolder -PathType Folder
+Test-PathExists -Path $rptFolder -PathType Folder
 [String]$privUserRptFldr = "{0}\{1}" -f $rptFolder, "PrivilegedUserReports"
-Check-Path -Path $privUserRptFldr -PathType Folder
+Test-PathExists -Path $privUserRptFldr -PathType Folder
 [String]$workingDir = "{0}\{1}" -f $privUserRptFldr, "workingDir"
-Check-Path -Path $workingDir -PathType Folder
+Test-PathExists -Path $workingDir -PathType Folder
 [String]$archiveFolder = "{0}\{1}" -f $privUserRptFldr, "Archives"
-Check-Path -Path $archiveFolder -PathType Folder
+Test-PathExists -Path $archiveFolder -PathType Folder
 `
 # Start transcript file
 Start-Transcript ("{0}\{1}" -f  $workingDir, $transcriptFileName)
 Write-Verbose -Message ("[{0} UTC] [SCRIPT] Beginning execution of script." -f $dtmScriptStartTimeUTC.ToString($dtmFormatString)) -Verbose
-Write-Verbose -Message ("[{0} UTC] [SCRIPT] Script Name             :  {1}" -f $(Utc-Now).ToString($dtmFormatString), $scriptName) -Verbose
-Write-Verbose -Message ("[{0} UTC] [SCRIPT] Script Directory path   :  {1}" -f $(Utc-Now).ToString($dtmFormatString), $scriptDir) -Verbose
-Write-Verbose -Message ("[{0} UTC] [SCRIPT] Working Directory path  :  {1}" -f $(Utc-Now).ToString($dtmFormatString), $workingDir) -Verbose
-Write-Verbose -Message ("[{0} UTC] [SCRIPT] Archive folder path     :  {1}" -f $(Utc-Now).ToString($dtmFormatString), $archiveFolder) -Verbose
+Write-Verbose -Message ("[{0} UTC] [SCRIPT] Script Name             :  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $scriptName) -Verbose
+Write-Verbose -Message ("[{0} UTC] [SCRIPT] Script Directory path   :  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $scriptDir) -Verbose
+Write-Verbose -Message ("[{0} UTC] [SCRIPT] Working Directory path  :  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $workingDir) -Verbose
+Write-Verbose -Message ("[{0} UTC] [SCRIPT] Archive folder path     :  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $archiveFolder) -Verbose
 
 $forestPrivGroups = Get-ForestPrivGroups
 $colAllPrivUsers = @()
@@ -561,7 +556,7 @@ ForEach ($privGroup in $forestPrivGroups)
                 
 	If ($numberOfUnique -gt $MaxUniqueMembers)
 	{
-	    Write-Host "...$privGroup has $numberofUnique unique members" -ForegroundColor Red
+	    	Write-Host "...$privGroup has $numberofUnique unique members" -ForegroundColor Red
 	}
 	Else
 	{
@@ -697,7 +692,7 @@ $emailTemplateFileName = "IAM_Monthly_PrivilegedUserReport.html"
 $smtpInfo = Get-SmtpServer -Domain ($ADForest).RootDomain
 
 $runTime = $stopWatch.Elapsed.ToString('dd\.hh\:mm\:ss')
-Write-Verbose -Message  ("[{0}] Sending email notification, please wait..." -f $(Utc-Now).ToString($dtmFormatString)) -Verbose
+Write-Verbose -Message  ("[{0}] Sending email notification, please wait..." -f $(Get-UtcTime).ToString($dtmFormatString)) -Verbose
 $emailTemplate = "{0}\{1}" -f $emailTemplatePath, $emailTemplateFileName
 
 $htmlTemplate = [System.IO.StreamReader]$emailTemplate
@@ -718,11 +713,10 @@ $colAttachments += Get-ChildItem -Path $archiveFile -File
 
 
 $params = @{
-	#To = "hemiller@deloitte.com"
-	To = "gtsctoiaminfrastructureteam@deloitte.com"
-	CC = "dbreeze@deloitte.com"
-	From = "IAM-Monthly-PrivUserRptNotifications@deloitte.com"
-	ReplyTo = "IAM-Monthly-PrivUserRptNotifications@deloitte.com"
+	To = "me@domain.com"
+	CC = "you@domain.com"
+	From = "Monthly-PrivUserRptNotifications@domain.com"
+	ReplyTo = "Monthly-PrivUserRptNotifications@domain.com"
 	#SMTPServer = $objXmlConfig.Configuration.EmailSettings.SMTPServer
 	SMTPServer = $smtpInfo.smtpServer
 	#Port = $objXmlConfig.Configuration.EmailSettings.Port
@@ -756,10 +750,10 @@ $filesToMove | ForEach-Object { Move-Item -Path $_.FullName -Destination $archiv
 Get-ChildItem -Path $archiveFolder -Recurse | Where-Object { $_.LastWriteTime -lt $Limit } | Remove-Item -Force
 
 #Close out script
-$dtmScriptStopTimeUTC = Utc-Now
+$dtmScriptStopTimeUTC = Get-UtcTime
 $elapsedTime = New-TimeSpan -Start $dtmScriptStartTimeUTC -End $dtmScriptStopTimeUTC
-Write-Verbose -Message ("[{0} UTC] [SCRIPT] Script Complete" -f $(Utc-Now).ToString($dtmFormatString)) -Verbose
-Write-Verbose -Message ("[{0} UTC] [SCRIPT] Script Start Time :  {1}" -f $(Utc-Now).ToString($dtmFormatString), $dtmScriptStartTimeUTC.ToString($dtmFormatString)) -Verbose
-Write-Verbose -Message ("[{0} UTC] [SCRIPT] Script Stop Time  :  {1}" -f $(Utc-Now).ToString($dtmFormatString), $dtmScriptStopTimeUTC.ToString($dtmFormatString)) -Verbose
-Write-Verbose -Message ("[{0} UTC] [SCRIPT] Elapsed Time: {1:N0}.{2:N0}:{3:N0}:{4:N1}  (Days.Hours:Minutes:Seconds)" -f $(Utc-Now).ToString($dtmFormatString), $elapsedTime.Days, $elapsedTime.Hours, $elapsedTime.Minutes, $elapsedTime.Seconds) -Verbose
+Write-Verbose -Message ("[{0} UTC] [SCRIPT] Script Complete" -f $(Get-UtcTime).ToString($dtmFormatString)) -Verbose
+Write-Verbose -Message ("[{0} UTC] [SCRIPT] Script Start Time :  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $dtmScriptStartTimeUTC.ToString($dtmFormatString)) -Verbose
+Write-Verbose -Message ("[{0} UTC] [SCRIPT] Script Stop Time  :  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $dtmScriptStopTimeUTC.ToString($dtmFormatString)) -Verbose
+Write-Verbose -Message ("[{0} UTC] [SCRIPT] Elapsed Time: {1:N0}.{2:N0}:{3:N0}:{4:N1}  (Days.Hours:Minutes:Seconds)" -f $(Get-UtcTime).ToString($dtmFormatString), $elapsedTime.Days, $elapsedTime.Hours, $elapsedTime.Minutes, $elapsedTime.Seconds) -Verbose
 #EndRegion

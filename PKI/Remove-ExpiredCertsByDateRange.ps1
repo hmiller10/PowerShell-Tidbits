@@ -114,13 +114,13 @@ If ( $PSBoundParameters.ContainsKey("Filter") )
 	If ( ( Get-Module -Name PSPKI).Version -ge 3.4 )
 	{
 		Get-IssuedRequest -CertificationAuthority $CA -Filter "NotAfter -ge $StartDate", "NotAfter -le $EndDate" | `
-		Where { (($_.CertificateTemplate).Contains($Recovery) -eq $false) -and (($_.CertificateTemplate).Contains($sMIME) -eq $false) -and (($_.CertificateTemplate).Contains($efs) -eq $false) } | ` 
+		Where-Object { (($_.CertificateTemplate).Contains($Recovery) -eq $false) -and (($_.CertificateTemplate).Contains($sMIME) -eq $false) -and (($_.CertificateTemplate).Contains($efs) -eq $false) } | ` 
 		Remove-AdcsDatabaseRow
 	}
 	Else
 	{
 		Get-IssuedRequest -CertificationAuthority $CA -Filter "NotAfter -ge $StartDate", "NotAfter -le $EndDate" | `
-		Where { (($_.CertificateTemplate).Contains($Recovery) -eq $false) -and (($_.CertificateTemplate).Contains($sMIME) -eq $false) -and (($_.CertificateTemplate).Contains($efs) -eq $false) } | ` 
+		Where-Object { (($_.CertificateTemplate).Contains($Recovery) -eq $false) -and (($_.CertificateTemplate).Contains($sMIME) -eq $false) -and (($_.CertificateTemplate).Contains($efs) -eq $false) } | ` 
 		Remove-DatabaseRow
 	}
 	exit

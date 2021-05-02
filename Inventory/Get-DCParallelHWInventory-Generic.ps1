@@ -63,7 +63,7 @@ $Headings = "Computer Name", "Network Adapter", "Description", "MAC Address", "I
 #Region Functions
 
 
-Function Check-Path
+Function Test-PathExists
 {
 	#Begin function to check path variable and return results
 	[CmdletBinding()]
@@ -104,7 +104,7 @@ Function Check-Path
 			}
 		}
 	}
-} #end function Check-Path
+} #end function Test-PathExists
 
 
 Function Write-Logfile
@@ -311,11 +311,11 @@ Function Get-TodaysDate
 } #End function fnGet-TodaysDate
 
 
-Function Utc-Now
+Function Get-UtcTime
 {
 	#Begin function to get current date and time in UTC format
 	[System.DateTime]::UtcNow
-} #End function fnUTC-Now
+} #End function Get-UtcTime
 
 
 Function Get-SMTPServer
@@ -429,34 +429,34 @@ Function Get-MyNewCimSession
 #Begin Script
 $Error.Clear()
 $dtmFormatString = "yyyy-MM-dd HH:mm:ss"
-$dtmScriptStartTimeUTC = Utc-Now
+$dtmScriptStartTimeUTC = Get-UtcTime
 $myInv = Get-MyInvocation
 $scriptDir = $myInv.PSScriptRoot
 $scriptName = $myInv.ScriptName
 
 #Start Function timer, to display elapsed time for function. Uses System.Diagnostics.Stopwatch class - see here: https://msdn.microsoft.com/en-us/library/system.diagnostics.stopwatch(v=vs.110).aspx 
 $stopWatch = [System.Diagnostics.Stopwatch]::StartNew()
-$dtmScriptStartTimeUTC = Utc-Now
+$dtmScriptStartTimeUTC = Get-UtcTime
 $dtmFormatString = "yyyy-MM-dd HH:mm:ss"
 $transcriptFileName = "{0}-{1}-Transcript.txt" -f $dtmScriptStartTimeUTC.ToString("yyyy-MM-dd_HH-mm-ss"), "DCInventory"
 
 $workingDir = "{0}\{1}" -f $scriptDir, "workingDir"
-Check-Path -Path $workingDir -PathType Folder
+Test-PathExists -Path $workingDir -PathType Folder
 $transcriptDir = "{0}\{1}" -f $logFolder, "Transcripts"
-Check-Path -Path $transcriptDir -PathType Folder
-Check-Path -Path $reportFldr -PathType Folder
-Check-Path -Path $logFolder -PathType Folder
+Test-PathExists -Path $transcriptDir -PathType Folder
+Test-PathExists -Path $reportFldr -PathType Folder
+Test-PathExists -Path $logFolder -PathType Folder
 $DCRptFldr = "{0}{1}\{2}" -f $driveRoot, "Reports", "DCInventories"
-Check-Path -Path $DCRptFldr -PathType Folder
+Test-PathExists -Path $DCRptFldr -PathType Folder
 
 # Start transcript file
 Start-Transcript ("{0}\{1}" -f $transcriptDir, $transcriptFileName)
 Write-Verbose -Message ("[{0} UTC] [SCRIPT] Beginning execution of script." -f $dtmScriptStartTimeUTC.ToString($dtmFormatString)) -Verbose
-Write-Verbose -Message ("[{0} UTC] [SCRIPT] Script Name:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $scriptName) -Verbose
-Write-Verbose -Message ("[{0} UTC] [SCRIPT] Log directory path:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $logFolder) -Verbose
-Write-Verbose -Message ("[{0} UTC] [SCRIPT] Report directory path:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $DCRptFldr) -Verbose
-Write-Verbose -Message ("[{0} UTC] [SCRIPT] Working directory path:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $workingDir) -Verbose
-Write-Verbose -Message ("[{0} UTC] [SCRIPT] Transcript directory path:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $transcriptDir) -Verbose
+Write-Verbose -Message ("[{0} UTC] [SCRIPT] Script Name:  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $scriptName) -Verbose
+Write-Verbose -Message ("[{0} UTC] [SCRIPT] Log directory path:  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $logFolder) -Verbose
+Write-Verbose -Message ("[{0} UTC] [SCRIPT] Report directory path:  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $DCRptFldr) -Verbose
+Write-Verbose -Message ("[{0} UTC] [SCRIPT] Working directory path:  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $workingDir) -Verbose
+Write-Verbose -Message ("[{0} UTC] [SCRIPT] Transcript directory path:  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $transcriptDir) -Verbose
 
 $objComputerDomain = [System.DirectoryServices.ActiveDirectory.Domain]::GetComputerDomain()
 $AuthenticationType = [System.DirectoryServices.AuthenticationTypes]::Signing -bor [System.DirectoryServices.AuthenticationTypes]::Sealing -bor [System.DirectoryServices.AuthenticationTypes]::Secure
@@ -464,7 +464,7 @@ $forestName = $objComputerDomain.Forest.Name
 
 
 Write-Verbose ("[{0} UTC] [SCRIPT] Beginning execution of script." -f $dtmScriptStartTimeUTC.ToString($dtmFormatString)) -Verbose
-Write-Verbose ("[{0} UTC] [SCRIPT] Script Name:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $scriptName) -Verbose
+Write-Verbose ("[{0} UTC] [SCRIPT] Script Name:  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $scriptName) -Verbose
 
 
 $totalDCs = 0
@@ -483,12 +483,12 @@ $searchScript = {
 		$objDc = Find-WritableDomainController -Domain $domain.Name.ToString() -Credential $Credential
 	}
 	
-	Write-Verbose ("[{0} UTC] Searching for nTDSDSA objects using domain controller:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $objDc.Name.ToString()) -Verbose
+	Write-Verbose ("[{0} UTC] Searching for nTDSDSA objects using domain controller:  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $objDc.Name.ToString()) -Verbose
 	$rootDsePath = "LDAP://{0}/rootDSE" -f $objDc.Name.ToString()
 	$rootDse = New-Object System.DirectoryServices.DirectoryEntry($rootDsePath)
 	$rootDse.psbase.AuthenticationType = $AuthenticationType
 	
-	Write-Verbose ("[{0} UTC] Searching root:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $SearchRoot) -Verbose
+	Write-Verbose ("[{0} UTC] Searching root:  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $SearchRoot) -Verbose
 	$getAdObjectParams = @{
 		DomainController = $objDc.Name.ToString()
 		SearchRoot	  = "CN=Sites,{0}" -f $rootDse.configurationNamingContext.ToString()
@@ -501,7 +501,7 @@ $searchScript = {
 	Get-AnADObject @getAdObjectParams
 }
 
-Write-Verbose ("[{0} UTC] [SCRIPT] Searching for domain controllers in each domain, please wait..." -f $(Utc-Now).ToString($dtmFormatString)) -Verbose
+Write-Verbose ("[{0} UTC] [SCRIPT] Searching for domain controllers in each domain, please wait..." -f $(Get-UtcTime).ToString($dtmFormatString)) -Verbose
 $Params = @{
 	InputObject = $objComputerDomain.Forest.Domains
 	ImportFunctions = $true
@@ -611,10 +611,10 @@ $Script = {
 	[String]$IPSubnet = $netAdapter.IPSubnet
 	[String]$DefGW = $netAdapter.DefaultIPGateway
 	# "" | Select @{n='TotalPhysicalProcessors';e={(,( gwmi Win32_Processor)).count}}, @{n='TotalPhysicalProcessorCores'; e={ (gwmi Win32_Processor | measure -Property NumberOfLogicalProcessors -sum).sum}}, @{n='TotalVirtualCPUs'; e={ (Get-VM | Get-VMProcessor | measure -Property Count -sum).sum }}, @{n='TotalVirtualCPUsInUse'; e={ (Get-VM | Where { $_.State -eq 'Running'} | Get-VMProcessor | measure -Property Count -sum).sum }}, @{n='TotalMSVMProcessors'; e={ (gwmi -ns root\virtualization\v2 MSVM_Processor).count }}, @{n='TotalMSVMProcessorsForVMs'; e={ (gwmi -ns root\virtualization\v2 MSVM_Processor -Filter "Description='Microsoft Virtual Processor'").count }}
-	Write-Verbose ("[{0} UTC] Getting entry for server reference:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $serverDirectoryEntry.ServerReference.ToString()) -Verbose
+	Write-Verbose ("[{0} UTC] Getting entry for server reference:  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $serverDirectoryEntry.ServerReference.ToString()) -Verbose
 	$computerDirectoryEntry = New-Object System.DirectoryServices.DirectoryEntry("LDAP://" + $serverDirectoryEntry.ServerReference.ToString())
 	
-	Write-Verbose ("[{0} UTC] Getting properties:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $computerDirectoryEntry.DistinguishedName.ToString())
+	Write-Verbose ("[{0} UTC] Getting properties:  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $computerDirectoryEntry.DistinguishedName.ToString())
 	$objProperties = [PSCustomObject] @{
 		DomainName = Get-FqdnFromDN -DistinguishedName $computerDirectoryEntry.DistinguishedName.ToString()
 		ADSite     = (New-Object System.DirectoryServices.DirectoryEntry(New-Object System.DirectoryServices.DirectoryEntry($serverDirectoryEntry.Parent)).Parent).Name.ToString()
@@ -646,7 +646,7 @@ $Script = {
 	$objProperties
 }
 
-Write-Verbose ("[{0} UTC] [SCRIPT] Iterating through collection of nTDSDSA objects, please wait..." -f $(Utc-Now).ToString($dtmFormatString)) -Verbose
+Write-Verbose ("[{0} UTC] [SCRIPT] Iterating through collection of nTDSDSA objects, please wait..." -f $(Get-UtcTime).ToString($dtmFormatString)) -Verbose
 $objParams = @{
 	InputObject     = $colADObjects
 	ImportFunctions = $true
@@ -664,8 +664,8 @@ Stop-Transcript
 $outputFile = "{0}\{1}" -f $DCRptFldr, "{0}_{1}_{2}.csv" -f $dtmScriptStartTimeUTC.ToString("yyyy-MM-dd_HH-mm-ss"), "DCHardwareInventoryList", $forestName
 $colResults | Sort-Object -Property DomainName, ADSite, ServerName | Export-Csv $outputFile -Append -NoTypeInformation
 $totalDCs = $colADObjects.Count
-Write-Host ("[{0} UTC] [SCRIPT] Total # of Domains             :  {1}" -f $(Utc-Now).ToString($dtmFormatString), $objComputerDomain.Forest.Domains.Count)
-Write-Host ("[{0} UTC] [SCRIPT] Total # of Domain Controllers  :  {1}" -f $(Utc-Now).ToString($dtmFormatString), $totalDCs)
+Write-Host ("[{0} UTC] [SCRIPT] Total # of Domains             :  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $objComputerDomain.Forest.Domains.Count)
+Write-Host ("[{0} UTC] [SCRIPT] Total # of Domain Controllers  :  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $totalDCs)
 
 $runTime = $stopWatch.Elapsed.ToString('dd\.hh\:mm\:ss')
 
@@ -694,12 +694,12 @@ Send-MailMessage -from $FromEmail -to $Admins -subject "$($forestName) DC Hardwa
 
 
 # script is complete
-$dtmScriptStopTimeUTC = Utc-Now
+$dtmScriptStopTimeUTC = Get-UtcTime
 $elapsedTime = New-TimeSpan -Start $dtmScriptStartTimeUTC -End $dtmScriptStopTimeUTC
-Write-Host ("[{0} UTC] [SCRIPT] Script Complete" -f $(Utc-Now).ToString($dtmFormatString))
-Write-Host ("[{0} UTC] [SCRIPT] Script Start Time :  {1}" -f $(Utc-Now).ToString($dtmFormatString), $dtmScriptStartTimeUTC.ToString($dtmFormatString))
-Write-Host ("[{0} UTC] [SCRIPT] Script Stop Time  :  {1}" -f $(Utc-Now).ToString($dtmFormatString), $dtmScriptStopTimeUTC.ToString($dtmFormatString))
-Write-Host ("[{0} UTC] [SCRIPT] Elapsed Time: {1:N0}.{2:N0}:{3:N0}:{4:N1}  (Days.Hours:Minutes:Seconds)" -f $(Utc-Now).ToString($dtmFormatString), $elapsedTime.Days, $elapsedTime.Hours, $elapsedTime.Minutes, $elapsedTime.Seconds)
-Write-Host ("[{0} UTC] [SCRIPT] Output File:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $outputFile)
+Write-Host ("[{0} UTC] [SCRIPT] Script Complete" -f $(Get-UtcTime).ToString($dtmFormatString))
+Write-Host ("[{0} UTC] [SCRIPT] Script Start Time :  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $dtmScriptStartTimeUTC.ToString($dtmFormatString))
+Write-Host ("[{0} UTC] [SCRIPT] Script Stop Time  :  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $dtmScriptStopTimeUTC.ToString($dtmFormatString))
+Write-Host ("[{0} UTC] [SCRIPT] Elapsed Time: {1:N0}.{2:N0}:{3:N0}:{4:N1}  (Days.Hours:Minutes:Seconds)" -f $(Get-UtcTime).ToString($dtmFormatString), $elapsedTime.Days, $elapsedTime.Hours, $elapsedTime.Minutes, $elapsedTime.Seconds)
+Write-Host ("[{0} UTC] [SCRIPT] Output File:  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $outputFile)
 
 #endregion

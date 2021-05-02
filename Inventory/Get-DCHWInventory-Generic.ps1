@@ -55,7 +55,7 @@ $Headings = "Computer Name", "Network Adapter", "Description", "MAC Address", "I
 #Region Functions
 
 
-Function Check-Path
+Function Test-PathExists
 {
 	#Begin function to check path variable and return results
 	[CmdletBinding()]
@@ -96,7 +96,7 @@ Function Check-Path
 			}
 		}
 	}
-} #end function Check-Path
+} #end function Test-PathExists
 
 
 Function Write-Logfile
@@ -303,11 +303,11 @@ Function Get-TodaysDate
 } #End function fnGet-TodaysDate
 
 
-Function Utc-Now
+Function Get-UtcTime
 {
 	#Begin function to get current date and time in UTC format
 	[System.DateTime]::UtcNow
-} #End function fnUTC-Now
+} #End function Get-UtcTime
 
 
 Function Get-SMTPServer
@@ -428,7 +428,7 @@ Function Get-MyNewCimSession
 #Begin Script
 $Error.Clear()
 $dtmFormatString = "yyyy-MM-dd HH:mm:ss"
-$dtmScriptStartTimeUTC = Utc-Now
+$dtmScriptStartTimeUTC = Get-UtcTime
 $myInv = Get-MyInvocation
 $scriptDir = $myInv.PSScriptRoot
 $scriptName = $myInv.ScriptName
@@ -438,12 +438,12 @@ $AuthenticationType = [System.DirectoryServices.AuthenticationTypes]::Signing -b
 $forestName = $objComputerDomain.Forest.Name
 
 Write-Verbose ("[{0} UTC] [SCRIPT] Beginning execution of script." -f $dtmScriptStartTimeUTC.ToString($dtmFormatString))
-Write-Verbose ("[{0} UTC] [SCRIPT] Script Name:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $scriptName)
+Write-Verbose ("[{0} UTC] [SCRIPT] Script Name:  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $scriptName)
 
 $colResults = @()
 $totalDCs = 0
 $count = 1
-Write-Verbose ("[{0} UTC] [SCRIPT] Searching for domain controllers in each domain, please wait..." -f $(Utc-Now).ToString($dtmFormatString))
+Write-Verbose ("[{0} UTC] [SCRIPT] Searching for domain controllers in each domain, please wait..." -f $(Get-UtcTime).ToString($dtmFormatString))
 foreach ($domain in $objComputerDomain.Forest.Domains)
 {
 	$ActivityMessage = "Searching for domain controllers in each domain, please wait..."
@@ -460,7 +460,7 @@ foreach ($domain in $objComputerDomain.Forest.Domains)
 		$objDc = Find-WritableDomainController -Domain $domain.Name.ToString() -Credential $Credential
 	}
 	
-	Write-Verbose ("[{0} UTC] Searching for nTDSDSA objects using domain controller:  {1}" -f [datetime]::UtcNow.ToString($dtmFormatString), $objDc.Name.ToString())
+	Write-Verbose ("[{0} UTC] Searching for nTDSDSA objects using domain controller:  {1}" -f [DateTime]::UtcNow.ToString($dtmFormatString), $objDc.Name.ToString())
 	$rootDsePath = "LDAP://{0}/rootDSE" -f $objDc.Name.ToString()
 	$rootDse = New-Object System.DirectoryServices.DirectoryEntry($rootDsePath)
 	$rootDse.psbase.AuthenticationType = $AuthenticationType
@@ -468,17 +468,17 @@ foreach ($domain in $objComputerDomain.Forest.Domains)
 	$Filter = "(&(objectClass={0})(msDS-HasDomainNCs={1}))" -f "ntdsdsa", $rootDse.defaultNamingContext.ToString()
 	$Properties = "*"
 	
-	Write-Verbose ("[{0} UTC] Searching root:  {1}" -f [datetime]::UtcNow.ToString($dtmFormatString), $SearchRoot)
+	Write-Verbose ("[{0} UTC] Searching root:  {1}" -f [DateTime]::UtcNow.ToString($dtmFormatString), $SearchRoot)
 	$colADObjects = Get-AnADObject -DomainController $objDc.Name.ToString() -SearchRoot $SearchRoot -SearchScope "subtree" -Filter $Filter -Properties $Properties -Port 389 -Credential $Credential
 	$totalDCs += $colADObjects.count
 	
-	Write-Verbose ("[{0} UTC] [SCRIPT] Iterating through collection of nTDSDSA objects, please wait..." -f $(Utc-Now).ToString($dtmFormatString))
+	Write-Verbose ("[{0} UTC] [SCRIPT] Iterating through collection of nTDSDSA objects, please wait..." -f $(Get-UtcTime).ToString($dtmFormatString))
 	$count2 = 1
 	foreach ($adObject in $colADObjects)
 	{
 		$objProperties = $null
 		
-		Write-Verbose ("[{0} UTC] nTDSDSA object DN:  {1}" -f [datetime]::UtcNow.ToString($dtmFormatString), $($adObject.properties["distinguishedname"]))
+		Write-Verbose ("[{0} UTC] nTDSDSA object DN:  {1}" -f [DateTime]::UtcNow.ToString($dtmFormatString), $($adObject.properties["distinguishedname"]))
 		
 		$serverDirectoryEntry = New-Object System.DirectoryServices.DirectoryEntry(($adObject.GetDirectoryEntry()).Parent)
 		$serverDirectoryEntry.psbase.AuthenticationType = $AuthenticationType
@@ -488,7 +488,7 @@ foreach ($domain in $objComputerDomain.Forest.Domains)
 		$PercentComplete = ($count2 / $colADObjects.count * 100)
 		Write-Progress -Activity $ActivityMessage -Status $StatusMessage -PercentComplete $PercentComplete -ParentId 1
 		
-		Write-Verbose ("[{0} UTC] Getting domain controller:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $serverDirectoryEntry.dnsHostName.ToString())
+		Write-Verbose ("[{0} UTC] Getting domain controller:  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $serverDirectoryEntry.dnsHostName.ToString())
 		
 		$dnsResult = Search-DnsNames -HostName $serverDirectoryEntry.dnsHostName.ToString() -Type A
 		$srv = $serverDirectoryEntry.dnsHostName
@@ -578,11 +578,11 @@ foreach ($domain in $objComputerDomain.Forest.Domains)
 		[String]$DefGW = $netAdapter.DefaultIPGateway
 		
 		# "" | Select @{n='TotalPhysicalProcessors';e={(,( gwmi Win32_Processor)).count}}, @{n='TotalPhysicalProcessorCores'; e={ (gwmi Win32_Processor | measure -Property NumberOfLogicalProcessors -sum).sum}}, @{n='TotalVirtualCPUs'; e={ (Get-VM | Get-VMProcessor | measure -Property Count -sum).sum }}, @{n='TotalVirtualCPUsInUse'; e={ (Get-VM | Where { $_.State -eq 'Running'} | Get-VMProcessor | measure -Property Count -sum).sum }}, @{n='TotalMSVMProcessors'; e={ (gwmi -ns root\virtualization\v2 MSVM_Processor).count }}, @{n='TotalMSVMProcessorsForVMs'; e={ (gwmi -ns root\virtualization\v2 MSVM_Processor -Filter "Description='Microsoft Virtual Processor'").count }}
-		Write-Verbose ("[{0} UTC] Getting entry for server reference:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $serverDirectoryEntry.ServerReference.ToString())
+		Write-Verbose ("[{0} UTC] Getting entry for server reference:  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $serverDirectoryEntry.ServerReference.ToString())
 		$computerDirectoryEntry = New-Object System.DirectoryServices.DirectoryEntry("LDAP://" + $serverDirectoryEntry.ServerReference.ToString())
 		if ($dnsResult -ne $null -and $computerDirectoryEntry -ne $null)
 		{
-			Write-Verbose ("[{0} UTC] Getting properties:  {1}" -f [datetime]::UtcNow.ToString($dtmFormatString), $computerDirectoryEntry.DistinguishedName.ToString())
+			Write-Verbose ("[{0} UTC] Getting properties:  {1}" -f [DateTime]::UtcNow.ToString($dtmFormatString), $computerDirectoryEntry.DistinguishedName.ToString())
 			$objProperties = [PSCustomObject]@{
 				DomainName = Get-FqdnFromDN -DistinguishedName $computerDirectoryEntry.DistinguishedName.ToString()
 				ADSite     = (New-Object System.DirectoryServices.DirectoryEntry(New-Object System.DirectoryServices.DirectoryEntry($serverDirectoryEntry.Parent)).Parent).Name.ToString()
@@ -619,14 +619,14 @@ foreach ($domain in $objComputerDomain.Forest.Domains)
 	$count++
 }
 
-Check-Path -Path $rptFolder -PathType Folder
+Test-PathExists -Path $rptFolder -PathType Folder
 
 $outFile = "{0}_{1}_{2}.csv" -f $dtmScriptStartTimeUTC.ToString("yyyy-MM-dd_HH-mm-ss"), "DCHardwareInventoryList", $forestName
 $outputFile = "{0}\{1}" -f $rptFolder, $outFile
 
 if ([string]::IsNullOrEmpty($outputFile) -eq $false -and $colResults -ne $null) { $colResults | Sort-Object -Property DomainName, ADSite, ServerName | Export-Csv $OutputFile -Append -NoTypeInformation }
-Write-Host ("[{0} UTC] [SCRIPT] Total # of Domains             :  {1}" -f $(Utc-Now).ToString($dtmFormatString), $objComputerDomain.Forest.Domains.Count)
-Write-Host ("[{0} UTC] [SCRIPT] Total # of Domain Controllers  :  {1}" -f $(Utc-Now).ToString($dtmFormatString), $totalDCs)
+Write-Host ("[{0} UTC] [SCRIPT] Total # of Domains             :  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $objComputerDomain.Forest.Domains.Count)
+Write-Host ("[{0} UTC] [SCRIPT] Total # of Domain Controllers  :  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $totalDCs)
 
 $Body = @"
 	<p>$(Get-TodaysDate)</p>
@@ -651,13 +651,13 @@ $smtpServer = $smtpSettings.smtpServer
 Send-MailMessage -from $FromEmail -to $Admins -subject "$($forestName) DC Hardware Inventory" -Attachments $outputFile -BodyAsHTML -Body $Body -priority Normal -smtpServer $smtpServer
 
 # script is complete
-$dtmScriptStopTimeUTC = Utc-Now
+$dtmScriptStopTimeUTC = Get-UtcTime
 $elapsedTime = New-TimeSpan -Start $dtmScriptStartTimeUTC -End $dtmScriptStopTimeUTC
-Write-Host ("[{0} UTC] [SCRIPT] Script Complete" -f $(Utc-Now).ToString($dtmFormatString))
-Write-Host ("[{0} UTC] [SCRIPT] Script Start Time :  {1}" -f $(Utc-Now).ToString($dtmFormatString), $dtmScriptStartTimeUTC.ToString($dtmFormatString))
-Write-Host ("[{0} UTC] [SCRIPT] Script Stop Time  :  {1}" -f $(Utc-Now).ToString($dtmFormatString), $dtmScriptStopTimeUTC.ToString($dtmFormatString))
-Write-Host ("[{0} UTC] [SCRIPT] Elapsed Time: {1:N0}.{2:N0}:{3:N0}:{4:N1}  (Days.Hours:Minutes:Seconds)" -f $(Utc-Now).ToString($dtmFormatString), $elapsedTime.Days, $elapsedTime.Hours, $elapsedTime.Minutes, $elapsedTime.Seconds)
-Write-Host ("[{0} UTC] [SCRIPT] Output File:  {1}" -f $(Utc-Now).ToString($dtmFormatString), $outputFile)
+Write-Host ("[{0} UTC] [SCRIPT] Script Complete" -f $(Get-UtcTime).ToString($dtmFormatString))
+Write-Host ("[{0} UTC] [SCRIPT] Script Start Time :  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $dtmScriptStartTimeUTC.ToString($dtmFormatString))
+Write-Host ("[{0} UTC] [SCRIPT] Script Stop Time  :  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $dtmScriptStopTimeUTC.ToString($dtmFormatString))
+Write-Host ("[{0} UTC] [SCRIPT] Elapsed Time: {1:N0}.{2:N0}:{3:N0}:{4:N1}  (Days.Hours:Minutes:Seconds)" -f $(Get-UtcTime).ToString($dtmFormatString), $elapsedTime.Days, $elapsedTime.Hours, $elapsedTime.Minutes, $elapsedTime.Seconds)
+Write-Host ("[{0} UTC] [SCRIPT] Output File:  {1}" -f $(Get-UtcTime).ToString($dtmFormatString), $outputFile)
 
 #EndRegion
 

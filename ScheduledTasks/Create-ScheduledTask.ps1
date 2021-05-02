@@ -21,10 +21,10 @@
 
 [CmdletBinding()]
 Param(
-[Parameter(Mandatory=$true)][System.String]$Description,
-[Parameter(Mandatory=$true)][System.String]$HostName,
-[Parameter(Mandatory=$false)][System.String]$Program="PowerShell.exe",
-[Parameter(Mandatory=$true)][System.String]$ScriptPath,
+[Parameter(Mandatory=$true)][String]$Description,
+[Parameter(Mandatory=$true)][String]$HostName,
+[Parameter(Mandatory=$false)][String]$Program="PowerShell.exe",
+[Parameter(Mandatory=$true)][String]$ScriptPath,
 [Parameter(Mandatory=$true)][System.Management.Automation.PSCredential]$SchedTaskCreds
 
 )

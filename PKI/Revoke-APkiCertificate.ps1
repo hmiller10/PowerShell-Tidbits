@@ -224,7 +224,6 @@ catch
 {
 	$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
 	Write-Error $errorMessage -ErrorAction Continue
-	$Error.Clear()
 }
 
 #EndRegion

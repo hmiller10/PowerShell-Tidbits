@@ -85,20 +85,23 @@ Param (
 )
 
 #Region Modules
-
-Try
+try
 {
-	Import-Module PSPKI -ErrorAction Stop
+	Import-Module PSPKI -Force
 }
-Catch
+catch
 {
-	Try
+	try
 	{
-		Import-Module "C:\Program Files\WindowsPowerShell\Modules\PSPKI.psd1" -ErrorAction Stop
+		$modulePath = "{0}\{1}\{2}\{3}" -f $env:ProgramFiles, "WindowsPowerShell", "Modules", "PSPKI"
+		$moduleVersion = (Get-Module -Name PSPKI).Version
+		$strModuleVersion = $moduleVersion.ToString()
+		$psdPath = "{0}\{1}\{2}" -f $modulePath, $strModuleVersion, "pspki.psd1"
+		Import-Module $psdPath -ErrorAction Stop
 	}
-	Catch
+	catch
 	{
-		Throw "PSPKI module could not be loaded. $($_.Exception.Message)"
+		throw "PSPKI module could not be loaded. $($_.Exception.Message)"
 	}
 	
 }
@@ -120,9 +123,16 @@ else
 	
 	[Array]$CAs = @($ca1, $ca2, $ca3, $ca4)
 }
-
+$Certs = @()
 
 #EndRegion
+
+
+
+
+
+
+
 
 
 
@@ -188,16 +198,16 @@ try
 		{
 			try
 			{
-				$Certs | foreach {
+				$Certs.foreach({
 					$RequestID = $_.RequestID
 					Get-IssuedRequest -CertificationAuthority $CA -Filter "RequestID -eq $RequestID" | Revoke-Certificate -Reason $Reason -RevocationDate (Get-Date)
 					
 					if ($?)
 					{
 						$RevokedRequests += Get-RevokedRequest -CertificationAuthority $CA -Filter $filter | Select-Object -Property RequestID, 'Request.RevokedWhen', 'Request.RevokedReason', CommonName, SerialNumber, CertificateTemplate
-						Publish-Crl -CertificationAuthority $CA
+						Get-CertificationAuthority -ComputerName $CA | Publish-CRL -UpdateFile
 					}
-				}
+				})
 				$Certs = $RequestID = $null
 			}
 			catch
@@ -224,6 +234,7 @@ catch
 {
 	$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
 	Write-Error $errorMessage -ErrorAction Continue
+	$Error.Clear()
 }
 
 #EndRegion

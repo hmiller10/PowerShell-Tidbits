@@ -1,75 +1,91 @@
-﻿#Requires -Module PSPKI
+﻿#Requires -Modules @{ ModuleName = "PSPKI"; ModuleVersion = "3.7.2" }
 <#
-	.NOTES
-	THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE
-	RISK OF THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH
-	THE USER.
-
 	.SYNOPSIS
 		Script to process pending certificate issuance requests using PSPKI module
-		
+	
 	.DESCRIPTION
 		This script will connect to the certificate authority server passed into
 		the script as a parameter and will locate any pending certificate issuance
 		requests. Upon finding a pending a request, the person running this script
-		will be prompted to either approve or deny the request. The script will then 
+		will be prompted to either approve or deny the request. The script will then
 		respond accordingly depending on the user's response.
-
-	.PARAMETER CA
-		Fully qualified domain name of certificate authority server
-
-	.OUTPUTS
-		None
-
-	.EXAMPLE
-	PS C:\> Invoke-ProcessPendingRequest.ps1 -CA myca.domain.com -Destination 'C:\Temp'
-
-	.LINK
-    	https://www.sysadmins.lv/blog-en/categoryview/powershellpowershellpkimodule.aspx
-
-	.LINK
-    	https://github.com/Crypt32/PSPKI
 	
+	.PARAMETER CertificateAuthority
+		Fully qualified domain name of certificate authority server
+	
+	.PARAMETER Destination
+		File system path where certificate requests processed by script invocation will be copied to.
+	
+	.PARAMETER Credential
+		Enter certificate authority admin credentials
+	
+	.EXAMPLE
+		PS C:\> Invoke-ProcessPendingRequest.ps1 -Certificate myca.domain.com -Destination 'C:\Temp'
+	
+	.EXAMPLE
+		PS C:\> Invoke-ProcessPendingRequest.ps1 -Certificate myca.domain.com -Destination 'C:\Temp' -Credential <PSCredential>
+	
+	.OUTPUTS
+		System.Security.Cryptography.X509Certificates.X509Certificate2
+	
+	.NOTES
+		THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE
+		RISK OF THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH
+		THE USER.
+	
+	.LINK
+		https://www.sysadmins.lv/blog-en/categoryview/powershellpowershellpkimodule.aspx
+	
+	.LINK
+		https://github.com/Crypt32/PSPKI
 #>
-
-
-[CmdletBinding()]
-Param (
-	[Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true, HelpMessage = "Specify the fully qualified domain name of the PKI server.")]
-	[String]$CertificateAuthority,
-	[Parameter(Mandatory = $true, Position = 1,
-			 HelpMessage = "Enter the path to where the .CER file should be copied to.",
-			 ValueFromPipeline = $false)]
-	[String]$Destination,
-	[Parameter(Mandatory = $false, Position = 2,
-			 HelpMessage = "Enter certificate authority admin credentials",
-			 ValueFromPipeline = $false)]
-	[System.Management.Automation.PSCredential]$Credential
+[CmdletBinding(ConfirmImpact = 'Low',
+	     PositionalBinding = $true,
+	     SupportsShouldProcess = $true)]
+[OutputType([System.Security.Cryptography.X509Certificates.X509Certificate2])]
+param
+(
+	[Parameter(Mandatory = $true,
+	           ValueFromPipeline = $true,
+	           Position = 0,
+	           HelpMessage = 'Specify the fully qualified domain name of the PKI server.')]
+	[String]
+	$CertificateAuthority,
+	[Parameter(Mandatory = $true,
+	           ValueFromPipeline = $false,
+	           Position = 1,
+	           HelpMessage = 'Enter the path to where the .CER file should be copied to.')]
+	[String]
+	$Destination,
+	[Parameter(Mandatory = $false,
+	           ValueFromPipeline = $false,
+	           Position = 2,
+	           HelpMessage = 'Enter certificate authority admin credentials')]
+	[System.Management.Automation.PSCredential]
+	$Credential
 )
 
 #Modules
-Try
+try
 {
-	Import-Module PSPKI -ErrorAction Stop
+	Import-Module PSPKI -Force
 }
-Catch
+catch
 {
-	Try
+	try
 	{
-		$modulePath = "{0}\{1}\{2}\{3}" -f $env:ProgramFiles, "WindowsPowerShell", "Modules", "PSPKI"
-		$psdPath = "{0}\{1}\{2}" -f $modulePath, (Get-Module -Name PSPKI).Version, "pspki.psd1"
+		$module = Get-Module -Name PSPKI;
+		$modulePath = Split-Path $module.Path;
+		$psdPath = "{0}\{1}" -f $modulePath, "PSPKI.psd1"
 		Import-Module $psdPath -ErrorAction Stop
 	}
-	Catch
+	catch
 	{
-		Throw "PSPKI module could not be loaded. $($_.Exception.Message)"
+		throw "PSPKI module could not be loaded. $($_.Exception.Message)"
 	}
-	
 }
 
 #Variables
-$certProps = @()
-$certProps = @("RawRequest","RequestID", "Request.RequesterName", "CommonName", "NotBefore", "NotAfter", "SerialNumber", "CertificateTemplate")
 $pendingRequests = @()
 Add-Type -Assembly System.Windows.Forms
 Add-Type -Assembly System.Drawing
@@ -80,134 +96,160 @@ $srvHostName = [System.Net.Dns]::GetHostByName("LocalHost").HostName
 
 
 
-
 #Script
 $Error.Clear()
 try
 {
-	if ($srvHostName -eq $CertificateAuthority)
+	if ($srvHostName -ne $CertificateAuthority)
 	{
-		$caServerService = (Get-Service -Name "CertSvc" -ErrorAction SilentlyContinue).Status
-		if ($caServerService -ne 'Running') { Invoke-Command -ComputerName $CertificateAuthority -ScriptBlock {Start-Service -Name "Certsvc" -ErrorAction Continue} }
-		else { Continue }
+		$caServerService = (Get-Service -Name "CertSvc" -ComputerName $CertificateAuthority -ErrorAction SilentlyContinue).Status
+		$params = @{
+			ComputerName = $CertificateAuthority
+			ErrorAction  = 'Stop'
+		}
 		
+		if (($PSBoundParameters.ContainsKey("Credential") -eq $true) -and ($null -ne $PSBoundParameters["Credential"])) { $params.Add('Credential', $Credential) }
+		if ($caServerService -ne 'Running')
+		{
+			
+			Invoke-Command @params -ScriptBlock { Start-Service -Name "Certsvc" -ErrorAction Continue }
+		}
 		
 	}
 	else
 	{
 		$caServerService = (Get-Service -Name "CertSvc" -ComputerName $CertificateAuthority -ErrorAction SilentlyContinue).Status
 		
-		if (($caServerService -ne 'Running') -and ($srvHostName -ne $CertificateAuthority))
+		if ($caServerService -ne 'Running')
 		{
-			if (($caServerService -eq 'Running') -and ($srvHostName -eq $CertificateAuthority))
+			Start-Service -Name "CertSvc" -ErrorAction Continue;
+			if (-not ($?))
 			{
-				Invoke-Command -ComputerName $CertificateAuthority -Credential $Credential -ScriptBlock {
-					Start-Service -Name "CertSvc" -ErrorAction Continue; if ($? -eq $true) { Continue }
-					else { exit }
-				}
+				throw "The {0} service is not running on certificate authority server: {1}. Please start the {2} service and re-run this script." -f "CertSvc", $CertificateAuthority, "CertSvc"
 			}
+			
 		}
 	}
 	
-	$CA = Connect-CertificationAuthority -ComputerName $CertificateAuthority
-	$pendingRequests = Get-PendingRequest -CertificationAuthority $CA
-	
-	if ($pendingRequests.Count -gt 0)
+	try
 	{
-		Write-Output ("Total number of pending certificate requests at this time: $($pendingRequests.Count)")
+		$CA = Connect-CertificationAuthority -ComputerName $CertificateAuthority
+	}
+	catch
+	{
+		$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+		Write-Error $errorMessage -ErrorAction Continue
+	}
+	
+	try
+	{
+		$pendingRequests = Get-PendingRequest -CertificationAuthority $CA
 		
-		foreach ($certRequest in $pendingRequests)
+		if ($pendingRequests.Count -gt 0)
 		{
-			$dbRow = Get-PendingRequest -CertificationAuthority $CA -Property "RawRequest" -RequestID $certRequest.RequestID
-			$reqbytes = [convert]::FromBase64String($dbRow."Request.RawRequest")
-			$req = New-Object System.Security.Cryptography.X509CertificateRequests.X509CertificateRequest( ,$reqBytes)
+			Write-Output ("Total number of pending certificate requests at this time: $($pendingRequests.Count)")
 			
-			Write-Output ("Please carefully review the fields in the below shown request. Pay extra attention to any SANs added to the request.")
-			
-			$form = New-Object System.Windows.Forms.Form
-			$form.width = 800
-			$form.height = 700
-			$form.StartPosition = "CenterScreen"
-			$form.Text = "Select Pending Certificate Request Approval Decision"
-			$form.Font = New-Object System.Drawing.Font("Verdana", 10)
-			
-			
-			$approveButton = New-Object System.Windows.Forms.Button
-			$approveButton.Location = New-Object System.Drawing.Size(650, 550)
-			$approveButton.Size = New-Object System.Drawing.Size(70, 25)
-			$approveButton.Text = "Approve"
-			$approveButton.DialogResult = [System.Windows.Forms.DialogResult]::Yes
-			$form.Controls.Add($approveButton)
-			
-			$denyButton = New-Object System.Windows.Forms.Button
-			$denyButton.Location = New-Object System.Drawing.Size(650, 600)
-			$denyButton.Size = New-Object System.Drawing.Size(70, 25)
-			$denyButton.Text = "Deny"
-			$denyButton.DialogResult = [System.Windows.Forms.DialogResult]::No
-			$form.Controls.Add($denyButton)
-			
-			$MyMultiLineTextBox = New-Object System.Windows.Forms.TextBox
-			$MyMultiLineTextBox.Multiline = $true
-			$MyMultiLineTextBox.Width = 725
-			$MyMultiLineTextBox.Height = 500
-			$MyMultiLineTextBox.Location = New-Object System.Drawing.Point(10, 10)
-			$MyMultiLineTextBox.Font = 'Verdana,16'
-			$MyMultiLineTextBox.ScrollBars = 'Vertical'
-			$MyMultiLineTextBox.WordWrap = $true
-			$MyMultiLineTextBox.TextAlign = 'Left'
-			$form.Controls.Add($MyMultiLineTextBox)
-			
-			
-			$MyMultiLineTextBox.AppendText($req.Format())
-			$form.AcceptButton = $approveButton
-			$form.CancelButton = $denyButton
-			
-			$form.Add_Shown({ $form.Activate(); $approveButton.Focus() })
-			$selectedReason = $form.ShowDialog()
-			
-			# Check for ESC presses
-			$form.KeyPreview = $True
-			$form.Add_KeyDown({
-					if ($_.KeyCode -eq "Escape")
-					{
-						# if escape, exit
-						$form.Close()
-					}
-				})
-			
-			switch ($selectedReason)
+			foreach ($certRequest in $pendingRequests)
 			{
-				"Yes" { $certRequest | Approve-CertificateRequest -ErrorAction Continue }
-				"No" { $certRequest | Deny-CertificateRequest -ErrorAction Continue }
+				if ($PSCmdlet.ShouldProcess('$certRequest', "Processing this pending certficiate request."))
+				{
+					$dbRow = Get-CertificationAuthority -ComputerName $CA.ComputerName -ErrorAction Stop | Get-PendingRequest -Property "Request.RawRequest" -RequestID $certRequest.RequestID
+					$reqbytes = [convert]::FromBase64String($dbRow."Request.RawRequest")
+					$req = New-Object System.Security.Cryptography.X509CertificateRequests.X509CertificateRequest( ,$reqBytes)
+					
+					Write-Output ("Please carefully review the fields in the below shown request. Pay extra attention to any SANs added to the request.")
+					
+					$form = New-Object System.Windows.Forms.Form
+					$form.width = 800
+					$form.height = 700
+					$form.StartPosition = "CenterScreen"
+					$form.Text = "Select Pending Certificate Request Approval Decision"
+					$form.Font = New-Object System.Drawing.Font("Verdana", 10)
+					
+					
+					$approveButton = New-Object System.Windows.Forms.Button
+					$approveButton.Location = New-Object System.Drawing.Size(650, 550)
+					$approveButton.Size = New-Object System.Drawing.Size(70, 25)
+					$approveButton.Text = "Approve"
+					$approveButton.DialogResult = [System.Windows.Forms.DialogResult]::Yes
+					$form.Controls.Add($approveButton)
+					
+					$denyButton = New-Object System.Windows.Forms.Button
+					$denyButton.Location = New-Object System.Drawing.Size(650, 600)
+					$denyButton.Size = New-Object System.Drawing.Size(70, 25)
+					$denyButton.Text = "Deny"
+					$denyButton.DialogResult = [System.Windows.Forms.DialogResult]::No
+					$form.Controls.Add($denyButton)
+					
+					$MyMultiLineTextBox = New-Object System.Windows.Forms.TextBox
+					$MyMultiLineTextBox.Multiline = $true
+					$MyMultiLineTextBox.Width = 725
+					$MyMultiLineTextBox.Height = 500
+					$MyMultiLineTextBox.Location = New-Object System.Drawing.Point(10, 10)
+					$MyMultiLineTextBox.Font = 'Verdana,16'
+					$MyMultiLineTextBox.ScrollBars = 'Vertical'
+					$MyMultiLineTextBox.WordWrap = $true
+					$MyMultiLineTextBox.TextAlign = 'Left'
+					$form.Controls.Add($MyMultiLineTextBox)
+					
+					
+					$MyMultiLineTextBox.AppendText($req.Format())
+					$form.AcceptButton = $approveButton
+					$form.CancelButton = $denyButton
+					
+					$form.Add_Shown({ $form.Activate(); $approveButton.Focus() })
+					$selectedReason = $form.ShowDialog()
+					
+					# Check for ESC presses
+					$form.KeyPreview = $True
+					$form.Add_KeyDown({
+							if ($_.KeyCode -eq "Escape")
+							{
+								# if escape, exit
+								$form.Close()
+							}
+						})
+					
+					switch ($selectedReason)
+					{
+						"Yes" { $certRequest | Approve-CertificateRequest -ErrorAction Continue }
+						"No" { $certRequest | Deny-CertificateRequest -ErrorAction Continue }
+						
+					}
+					
+					$cert = Get-AdcsDatabaseRow -CertificationAuthority $CertificateAuthority -Table Issued -Filter "RequestID -eq $($certRequest.RequestID)"
+					Receive-Certificate -RequestRow $cert -Path $Destination -Force
+					
+					#To-Do
+					# add cert to encrypted .zip and e-mail to caller
+				}
 				
 			}
-			
-			$cert = Get-AdcsDatabaseRow -CertificationAuthority $CertificateAuthority -Table Issued -Filter "RequestID -eq $($certRequest.RequestID)"
-			Receive-Certificate -RequestRow $cert -Path $Destination -Force
-			
-			#To-Do
-			# add cert to encrypted .zip and e-mail to caller
-			
+		}
+		else
+		{
+			Add-Type -AssemblyName PresentationFramework
+			[System.Windows.MessageBox]::Show("There are no pending certificate requests at this time on certificate authority: $($CA.ComputerName)")
 		}
 	}
-	else
+	catch
 	{
-		Add-Type -AssemblyName PresentationFramework
-		[System.Windows.MessageBox]::Show("There are no pending certificate requests at this time on certificate authority: $($CA)")
+		$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+		Write-Error $errorMessage -ErrorAction Continue
 	}
-	
 }
 catch
 {
 	$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
 	Write-Error $errorMessage -ErrorAction Continue
-	$Error.Clear()
 }
+
+
 # SIG # Begin signature block
 # MII0VAYJKoZIhvcNAQcCoII0RTCCNEECAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCXRPoGoxw2b4Og
-# 6CJXHNRWBXUUClp4H4tA3TZTGGZ4daCCLjkwggNfMIICR6ADAgECAgsEAAAAAAEh
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDfPQ9TqanmEi9k
+# soW1Qn+70/fO5qtoLtNfQnwO+xdIoKCCLjkwggNfMIICR6ADAgECAgsEAAAAAAEh
 # WFMIojANBgkqhkiG9w0BAQsFADBMMSAwHgYDVQQLExdHbG9iYWxTaWduIFJvb3Qg
 # Q0EgLSBSMzETMBEGA1UEChMKR2xvYmFsU2lnbjETMBEGA1UEAxMKR2xvYmFsU2ln
 # bjAeFw0wOTAzMTgxMDAwMDBaFw0yOTAzMTgxMDAwMDBaMEwxIDAeBgNVBAsTF0ds
@@ -458,30 +500,30 @@ catch
 # JomT8ixkARkWCGRlbG9pdHRlMRYwFAYKCZImiZPyLGQBGRYGYXRyYW1lMSMwIQYD
 # VQQDExpEZWxvaXR0ZSBTSEEyIExldmVsIDMgQ0EgNAITcgAXaI4zZsdc1qmpHQAB
 # ABdojjANBglghkgBZQMEAgEFAKBMMBkGCSqGSIb3DQEJAzEMBgorBgEEAYI3AgEE
-# MC8GCSqGSIb3DQEJBDEiBCAbf8x4isd3gUjbx8XACmF/2Jf+g3RVFnCdkYP2iFYe
-# XTANBgkqhkiG9w0BAQEFAASCAQB3Xp32gGdf70nhS4DLG5HzV9JBSUeXn1BbRNJh
-# eEfs7OW+g8PF8MiijkuMZbB8VdC0AGGXQeP8/APqUGGTEBUpdCNgqbyb6p5HTM6L
-# ovXWXFQgu+Pup/3RWQ7mczN8c5IvUSH9SBWunan39eR/QjYgjXJeSO7cZPAcTJDz
-# lpl5IFLovHxpqS9nvYws6uJvSXn3EDreE21uLF86AWvqZMNYEcPVh+j1l5YU1t8a
-# pGn5oMwDrh/N+wnodzwO40Ev0sZa3kh+ODOFm1ynaw4FOrcyV2uf1LP7FEATnNx+
-# AzkpmVwAD4zXSXDvuz2BnRtUgFrxEi8ZoUT/3w1+C5EnJutToYIDcDCCA2wGCSqG
+# MC8GCSqGSIb3DQEJBDEiBCCZmUJHwKTvbDES9udrjFIdAzDnbvZcO/TlSA2jUz3b
+# 3zANBgkqhkiG9w0BAQEFAASCAQBCNDY2p6PbpwdKWRTI319jUHTuGtrLa5ZEOAT6
+# G5tUeeLnJhSFiQzAu+nZgvbFRi8fM74lXlitXhYZeNMDiMc3WsmCLo/S2H8QSvUw
+# vvNzNa88jCJTGpQPdz2rRAZtUYNHuAStTSPxzzteBGVF7r5GC7dadmFzLvrAd0tv
+# P657lKsw9/zXNi6fJ8tAZA4MbhHSbWDdi0u+pGTZdAGeAte9UUyhAMnZH1w9CAFX
+# ji/T1voriwtkcenzCDXJlMhEs8DgXDU0qlaV5hw5KztvpTKFclcMaukg/fvqdzVH
+# z5TE9qaXqCV5bYy3kWXrqRNWe0sLmEFVCzag9tvixgdcurRJoYIDcDCCA2wGCSqG
 # SIb3DQEJBjGCA10wggNZAgEBMG8wWzELMAkGA1UEBhMCQkUxGTAXBgNVBAoTEEds
 # b2JhbFNpZ24gbnYtc2ExMTAvBgNVBAMTKEdsb2JhbFNpZ24gVGltZXN0YW1waW5n
 # IENBIC0gU0hBMzg0IC0gRzQCEAGE06jON4HrV/T9h3uDrrIwDQYJYIZIAWUDBAIB
 # BQCgggE/MBgGCSqGSIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJKoZIhvcNAQkFMQ8X
-# DTIxMDYyMTIwMjk0OFowLQYJKoZIhvcNAQk0MSAwHjANBglghkgBZQMEAgEFAKEN
-# BgkqhkiG9w0BAQsFADAvBgkqhkiG9w0BCQQxIgQg/Q/r+swHc7pL6HGYMIVvgfie
-# xowA+du7CcUW3H9IVQswgaQGCyqGSIb3DQEJEAIMMYGUMIGRMIGOMIGLBBTdV7Wz
+# DTIyMDExOTAwMjEzMlowLQYJKoZIhvcNAQk0MSAwHjANBglghkgBZQMEAgEFAKEN
+# BgkqhkiG9w0BAQsFADAvBgkqhkiG9w0BCQQxIgQgqkH1qQmGjJQEowivCAF7tfz3
+# j/GdDUQtleoaMWay8aUwgaQGCyqGSIb3DQEJEAIMMYGUMIGRMIGOMIGLBBTdV7Wz
 # hzyGGynGrsRzGvvojXXBSTBzMF+kXTBbMQswCQYDVQQGEwJCRTEZMBcGA1UEChMQ
 # R2xvYmFsU2lnbiBudi1zYTExMC8GA1UEAxMoR2xvYmFsU2lnbiBUaW1lc3RhbXBp
 # bmcgQ0EgLSBTSEEzODQgLSBHNAIQAYTTqM43getX9P2He4OusjANBgkqhkiG9w0B
-# AQsFAASCAYCuhdtalxE+IvKG4nH5Xq2PdT1ulZPxg4XnYnTJx9lYJE2he3sehyA5
-# e4x9PR54IKtFOWia/GBVS3FVupCBRjEmCe8ucOiqaow5+IsXfHY6iPUDHwJyzVuI
-# +pX4TdfQHN2wkU+qhseL4IYIwgf1u105ie7ogA0XBeR1zdAe664KeimP5skqi7xn
-# UJVb0sSuJ7Nt7Ukseg+bhZESmPrNUtfoZnwi2Sf6STbP2xIwbTwDpEp1XJxJJb9b
-# +9hQpnioz5BIiqxmaejVMCUerzehCXsldS8PcErSSd6VCr/ai+w3t9ES30yvL1Kb
-# aKnbiw/7Jy8IxaCJqeFXuT1vziETIlW57RqOsoQ5+1tLtf0E9iC7P8Qwu6zOX0Dv
-# QcAm24/gYV8sl4dZTu6OpLEiLPHWoBDRZQofih68qz7nk0cysf95+Wb+xLK2QMsB
-# abEvuXCAKnzNgj+gN6KdbORep/pOTSsdE7uUcaSqDwyVBwrPgySHpMjWj4AcnKde
-# Ut7QkcePYyI=
+# AQsFAASCAYAlN1E9efdgVoSxBt+mI/pFeMZJOSEu9YvE0RTRVnIGVBtu2Ih5WAeA
+# WIBb2LiumCXC9+GEo2ha1h0HW0myHCMQF8tGM7ebU2y2MZ+Cvnl3Y0CQ7nt0T7sE
+# pPNDgPi6XOZwzkcebsbIRV2kAgttqASS5tewKrqoMXRNqKMOY3JN9Rw4MqI+bgWc
+# MVl49/6CZx+FRl7NYt+ZIo2h1mP/Ah/KNEcOcOphRASBNFdqeu7tajEentJ3oBeY
+# GyJGFsSaisCCcjjDNJLk6hvAT5e4zDy6lCPScrSUeLifaCQjSyWRp/EgjzIz/O02
+# I7YXMHvITxsREXiyeICtY1rxbqqoADsJPWMbAHeT231nkXZahZVIi6WViJlD5CEy
+# bm0yNsyC6lbud5y7eQ0zJabjibrV5VUjsQXsjXHKSnX+RVeIyxKZPiCfUgMqDDLC
+# yamIECtpoLoB6IVPpOUkjzs0hIQtJT8fOPXHf1UK2HR1EesqaXy8Xr5KA2OAcuBd
+# bITmZ+dQ7Gc=
 # SIG # End signature block

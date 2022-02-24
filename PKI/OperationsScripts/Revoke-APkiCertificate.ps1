@@ -53,10 +53,12 @@
 #
 #
 # VERSION HISTORY:
-# 	3.0 10/25/2021 - Updated CA connection method and processing loop
+# 	2.0 04/27/2020 - Added input parameter for certificate hash or thumbprint
 #
 # 
 ###########################################################################
+
+
 
 [CmdletBinding(DefaultParameterSetName = 'RequestorName')]
 Param (
@@ -67,17 +69,17 @@ Param (
 	[String]$SerialNumber,
 	[Parameter(ParameterSetName = "CertificateHash", Mandatory = $false, HelpMessage = "Enter CertificateHash value for certificate to be revoked, no spaces.")]
 	[String]$Thumbprint,
-	[Parameter(ParameterSetName = "RequestorName", Mandatory = $false, HelpMessage = "Enter the date certificates should have been issued before. EG: 01/01/2020 00:00:00")]
+	[Parameter(ParameterSetName = "CertificateHash", Mandatory = $false, HelpMessage = "Enter the date certificates should have been issued before. EG: 01/01/2020 00:00:00")]
+	[Parameter(ParameterSetName = "RequestorName")]
 	[Parameter(ParameterSetName = "SerialNumber")]
-	[Parameter(ParameterSetName = "CertificateHash")]
-	[DateTime]$Before,
-	[Parameter(ParameterSetName = "RequestorName", Mandatory = $false, HelpMessage = "Enter FQDN of Certificate Authority. EG: myca.domain.com")]
+	[String]$Before,
+	[Parameter(ParameterSetName = "CertificateHash", Mandatory = $false, HelpMessage = "Enter FQDN of Certificate Authority. EG: myca.domain.com")]
+	[Parameter(ParameterSetName = "RequestorName")]
 	[Parameter(ParameterSetName = "SerialNumber")]
-	[Parameter(ParameterSetName = "CertificateHash")]
-	[Array]$CertificateAuthorities,
-	[Parameter(ParameterSetName = "RequestorName", Mandatory = $true, HelpMessage = "Enter reason why certificate is being revoked.")]
+	[String]$CA,
+	[Parameter(ParameterSetName = "CertificateHash", Mandatory = $true, HelpMessage = "Enter reason why certificate is being revoked.")]
+	[Parameter(ParameterSetName = "RequestorName")]
 	[Parameter(ParameterSetName = "SerialNumber")]
-	[Parameter(ParameterSetName = "CertificateHash")]
 	[ValidateSet('Unspecified', 'KeyCompromise', 'CACompromise', 'AffiliationChanged', 'Superseded', 'CeaseOfOperation')]
 	[String]$Reason
 )
@@ -108,47 +110,68 @@ catch
 
 #Region Variables
 
+if ($PSBoundParameters.ContainsKey('CA'))
+{
+	[Array]$CAs = @($CA)
+}
+else
+{
+	$ca1 = 'ca1.domain.com'
+	$ca2 = 'ca1.domain.com'
+	$ca3 = 'ca1.domain.com'
+	$ca4 = 'ca1.domain.com'
+	
+	[Array]$CAs = @($ca1, $ca2, $ca3, $ca4)
+}
+$Certs = @()
+
 #EndRegion
 
 
 
 
-	
-	
-	
+
+
+
+
+
+
 #Region Script
 $Error.Clear()
 
 switch ($PSCmdlet.ParameterSetName)
 {
 	"RequestorName" {
-		if ($PSBoundParameters.ContainsKey("Before"))
+		if (($PSBoundParameters.ContainsKey('RequestorName')) -and ($PSBoundParameters.ContainsKey('NotBefore')))
 		{
-			$filter = "Request.RequesterName -eq $RequestorName","NotBefore -le $Before";break
+			[DateTime]$sDate = Get-Date $Before
+			$filter = "Request.RequesterName -eq $RequestorName", "NotBefore -le $sDate"
 		}
-		else
+		elseif ($PSBoundParameters.ContainsKey('RequestorName'))
 		{
-			$filter = "Request.RequesterName -eq $RequestorName";break
+			$filter = "Request.RequesterName -eq $RequestorName"
 		}
 	}
 	"SerialNumber" {
-		if ($PSBoundParameters.ContainsKey("Before"))
+		if (($PSBoundParameters.ContainsKey('SerialNumber')) -and ($PSBoundParameters.ContainsKey('NotBefore')))
 		{
-			$filter = "SerialNumber -eq $SerialNumber", "NotBefore -le $Before";break
+			[DateTime]$sDate = Get-Date $Before
+			$filter = "SerialNumber -eq $SerialNumber", "NotBefore -le $sDate"
 		}
-		else
+		elseif ($PSBoundParameters.ContainsKey('SerialNumber'))
 		{
-			$filter = "SerialNumber -eq $SerialNumber" ;break
+			$filter = "SerialNumber -eq $SerialNumber"
 		}
 	}
 	"CertificateHash" {
-		if ($PSBoundParameters.ContainsKey("Before"))
+		if (($PSBoundParameters.ContainsKey('Thumbprint')) -and ($PSBoundParameters.ContainsKey('Before')))
 		{
-			$filter = "CertificateHash -eq $Thumbprint", "NotBefore -le $Before";break
+			[DateTime]$sDate = Get-Date $Before
+			$filter = "CertificateHash -eq $Thumbprint", "NotBefore -le $sDate"
 		}
-		else
-        {
-			$filter = "CertificateHash -eq $Thumbprint";break
+		elseif ($PSBoundParameters.ContainsKey('Thumbprint'))
+		{
+			$filter = "CertificateHash -eq $Thumbprint"
 		}
 	}
 	
@@ -157,41 +180,35 @@ switch ($PSCmdlet.ParameterSetName)
 
 try
 {
-	$Certs = @()
-	foreach ($CA in $CertificateAuthorities)
+	foreach ($CA in $CAs)
 	{
 		try
 		{
-			Write-Output ("Filter is: {0}" -f $filter)
-			Write-Output ("Connecting to and searching database on {0} using filter: {1}" -f $CA, $filter)
+			'Filter is: {0}' -f $filter
+			Write-Output ("Connecting to and searching database on $($CA) using filter: $($filter)")
 			$Certs += Get-CertificationAuthority -ComputerName $CA -ErrorAction Stop | Get-IssuedRequest -Filter $filter -ErrorAction Continue
-			
 		}
-		Catch
+		catch
 		{
 			$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
 			Write-Error $errorMessage -ErrorAction Continue
 		}
 		
-		If ($Certs.count -gt 0)
+		if ($Certs.count -gt 0)
 		{
-			$RevokedRequests = @()
 			try
 			{
-				$Certs.foreach({ Write-Output $_ })
-#				$Certs.foreach({
-#					$RequestID = $_.RequestID
-#						
-#					Get-IssuedRequest -CertificationAuthority $CertificateAuthority.ComputerName -Filter "RequestID -eq $RequestID" | Revoke-Certificate -Reason $Reason -RevocationDate (Get-Date)
-#					
-#					if ($?)
-#					{
-#						$RevokedRequests += Get-RevokedRequest -CertificationAuthority $CertificateAuthority.ComputerName -RequestID $RequestID | Select-Object -Property RequestID, 'Request.RevokedWhen', 'Request.RevokedReason', CommonName, SerialNumber, CertificateTemplate
-#						Get-CertificationAuthority -ComputerName $CertificateAuthority.ComputerName | Publish-CRL -UpdateFile
-#					}
-#					$null = $RequestID
-#				})
-#				$null = $Certs
+				$Certs.foreach({
+					$RequestID = $_.RequestID
+					Get-IssuedRequest -CertificationAuthority $CA -Filter "RequestID -eq $RequestID" | Revoke-Certificate -Reason $Reason -RevocationDate (Get-Date)
+					
+					if ($?)
+					{
+						$RevokedRequests += Get-RevokedRequest -CertificationAuthority $CA -Filter $filter | Select-Object -Property RequestID, 'Request.RevokedWhen', 'Request.RevokedReason', CommonName, SerialNumber, CertificateTemplate
+						Get-CertificationAuthority -ComputerName $CA | Publish-CRL -UpdateFile
+					}
+				})
+				$Certs = $RequestID = $null
 			}
 			catch
 			{
@@ -201,17 +218,13 @@ try
 			}
 			finally
 			{
-				If ($RevokedRequests.Count -gt 0)
-				{
-					Write-Output $RevokedRequests
-				}
-				$RevokedRequests = @()
+				Write-Output $RevokedRequests
 			}
-			
+			$RevokedRequests = @()
 		}
 		else
 		{
-			Write-Output ("No certificates were found based on the input parameters.")
+			Write-Output ("No certificates were found related to the input parameters.")
 		}
 		$CA = $null
 	}
@@ -221,6 +234,7 @@ catch
 {
 	$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
 	Write-Error $errorMessage -ErrorAction Continue
+	$Error.Clear()
 }
 
 #EndRegion

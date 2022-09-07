@@ -1,5 +1,4 @@
-﻿#Requires -Module ActiveDirectory, ImportExcel
-#Requires -Version 7
+﻿#Requires -Version 7
 #Requires -RunAsAdministrator
 <#
 
@@ -30,7 +29,7 @@
 #
 # AUTHOR:  Heather Miller
 #
-# VERSION HISTORY: 1.0
+# VERSION HISTORY: 2.0 - Added export to .CSV and updated output file naming convention.
 # 
 ###########################################################################
 
@@ -40,50 +39,58 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned
 
 #Region Modules
 #Check if required module is loaded, if not load import it
-Try 
+try
 {
-	Import-Module ActiveDirectory -ErrorAction Stop
+	Import-Module ActiveDirectory -SkipEditionCheck -ErrorAction Stop
 }
-Catch
+catch
 {
-	Try
+	try
 	{
-	    Import-Module C:\Windows\System32\WindowsPowerShell\v1.0\Modules\ActiveDirectory\ActiveDirectory.psd1 -ErrorAction Stop
+		Import-Module C:\Windows\System32\WindowsPowerShell\v1.0\Modules\ActiveDirectory\ActiveDirectory.psd1 -ErrorAction Stop
 	}
-	Catch
+	catch
 	{
-	   Throw "Active Directory module could not be loaded. $($_.Exception.Message)"
+		throw "Active Directory module could not be loaded. $($_.Exception.Message)"
 	}
 	
 }
 
-Try
+try
 {
 	Import-Module ImportExcel -Force
 }
-Catch
+catch
 {
-	Try
+	try
 	{
 		$module = Get-Module -Name ImportExcel;
-		 $modulePath = Split-Path $module.Path;
-		 $psdPath = "{0}\{1}" -f $modulePath, "ImportExcel.psd1"
+		$modulePath = Split-Path $module.Path;
+		$psdPath = "{0}\{1}" -f $modulePath, "ImportExcel.psd1"
 		Import-Module $psdPath -ErrorAction Stop
 	}
-	Catch
+	catch
 	{
-		Throw "ImportExcel PS module could not be loaded. $($_.Exception.Message)"
+		throw "ImportExcel PS module could not be loaded. $($_.Exception.Message)"
 	}
 }
-   
-Try 
+
+try
 {
-	Import-Module GroupPolicy -ErrorAction Stop
+	Import-Module GroupPolicy -SkipEditionCheck -ErrorAction Stop
 }
-Catch
+catch
 {
-	Throw "Group Policy module could not be loaded. $($_.Exception.Message)"
+	try
+	{
+		Import-Module C:\Windows\System32\WindowsPowerShell\v1.0\Modules\GroupPolicy\GroupPolicy.psd1 -ErrorAction Stop
+	}
+	catch
+	{
+		throw "Group Policy module could not be loaded. $($_.Exception.Message)"
+	}
 }
+
 #EndRegion
 
 #Region Global Variables
@@ -107,7 +114,7 @@ ColumnName,DataType
 "Notes",string
 "@
 
-[int32]$throttleLimit = 100
+[int32]$throttleLimit = 50
 #EndRegion
 
 #Region Functions
@@ -141,29 +148,30 @@ function Add-DataTable
 		[Parameter(Mandatory = $true,
 				 Position = 0)]
 		[ValidateNotNullOrEmpty()]
-		[String]$TableName,  #'TableName'
+		[String]$TableName,
+		#'TableName'
 		[Parameter(Mandatory = $true,
 				 Position = 1)]
 		[ValidateNotNullOrEmpty()]
-		$ColumnArray  #'DataColumnDefinitions'
+		$ColumnArray #'DataColumnDefinitions'
 	)
 	
 	
-	Begin
+	begin
 	{
 		$dt = $null
 		$dt = New-Object System.Data.DataTable("$TableName")
 	}
-	Process
+	process
 	{
-		ForEach ($col in $ColumnArray)
+		foreach ($col in $ColumnArray)
 		{
 			[void]$dt.Columns.Add([System.Data.DataColumn]$col.ColumnName.ToString(), $col.DataType)
 		}
 	}
-	End
+	end
 	{
-		Write-Output @(,$dt)
+		Write-Output @( ,$dt)
 	}
 } #end function Add-DataTable
 
@@ -192,74 +200,88 @@ Test-PathExists -Path "C:\temp\SomeFile.txt" -PathType File
 Test-PathExists -Path "C:\temp" -PathFype Folder
 
 #>
-	[CmdletBinding()]
+	
+[CmdletBinding(SupportsShouldProcess = $true)]
 	param
 	(
+		[Parameter( Mandatory = $true,
+				 Position = 0,
+				 HelpMessage = 'Type the file system where the folder or file to check should be verified.')]
+		[string]$Path,
 		[Parameter(Mandatory = $true,
-				 Position = 0)]
-		[String]$Path,
-		[Parameter(Mandatory = $true,
-				 Position = 1)]
-		[Object]$PathType
+				 Position = 1,
+				 HelpMessage = 'Specify path content as file or folder')]
+		[string]$PathType
 	)
 	
-	Begin { $VerbosePreference = 'Continue' }
-	
-	Process
+	begin
 	{
-		Switch ($PathType)
+		$VerbosePreference = 'Continue';
+	}
+	
+	process
+	{
+		switch ($PathType)
 		{
 			File
 			{
-				If ((Test-Path -Path $Path -PathType Leaf) -eq $true)
+				if ((Test-Path -Path $Path -PathType Leaf) -eq $true)
 				{
-					Write-Information -MessageData "File: $Path already exists..."
+					Write-Output ("File: {0} already exists..." -f $Path)
 				}
-				Else
+				else
 				{
-					New-Item -Path $Path -ItemType File -Force
-					Write-Verbose -Message "File: $Path not present, creating new file..."
+					Write-Verbose -Message ("File: {0} not present, creating new file..." -f $Path)
+					if ($PSCmdlet.ShouldProcess($Path, "Create file"))
+					{
+						[System.IO.File]::Create($Path)
+					}
 				}
 			}
 			Folder
 			{
-				If ((Test-Path -Path $Path -PathType Container) -eq $true)
+				if ((Test-Path -Path $Path -PathType Container) -eq $true)
 				{
-					Write-Information -MessageData "Folder: $Path already exists..."
+					Write-Output ("Folder: {0} already exists..." -f $Path)
 				}
-				Else
+				else
 				{
-					New-Item -Path $Path -ItemType Directory -Force
-					Write-Verbose -Message "Folder: $Path not present, creating new folder"
+					Write-Verbose -Message ("Folder: {0} not present, creating new folder..." -f $Path)
+					if ($PSCmdlet.ShouldProcess($Path, "Create folder"))
+					{
+						[System.IO.Directory]::CreateDirectory($Path)
+					}
+					
+					
 				}
 			}
 		}
 	}
 	
-	End { }
+	end { }
 	
 }#end function Test-PathExists
 
-function Get-ReportDate
+function Get-UTCTime
 {
 <#
 	.SYNOPSIS
-		function to get date in format yyyy-MM-dd
+		Get UTC Time
 	
 	.DESCRIPTION
-		function to get date using the Get-Date cmdlet in the format yyyy-MM-dd
+		This functions returns the Universal Coordinated Date and Time. 
 	
 	.EXAMPLE
-		PS C:\> $rptDate = Get-ReportDate
+		PS C:\> Get-UTCTime
 	
 	.NOTES
 		THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE ENTIRE RISK OF 
 		THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH THE USER.
 #>
 	
-	#Begin function get report execution date
-	Get-Date -Format "yyyy-MM-dd"
-} #End function Get-ReportDate
+	#Begin function to get current date and time in UTC format
+	[System.DateTime]::UtcNow
+} #end function Get-UTCTime
 
 function Get-GPSiteLink
 {
@@ -299,8 +321,8 @@ function Get-GPSiteLink
 		[Parameter(Position = 2)]
 		[String]$Forest
 	)
-
-	Begin
+	
+	begin
 	{
 		$VerbosePreference = 'Continue'
 		Write-Verbose "Starting function to get gpos linked to an AD site."
@@ -331,9 +353,9 @@ function Get-GPSiteLink
 		$gpmConstants = $gpm.GetConstants()
 		$gpmDomain = $gpm.GetDomain($domain, "", $gpmConstants.UseAnyDC)
 	} #Begin
-	Process
+	process
 	{
-		ForEach ($item in $siteName)
+		foreach ($item in $siteName)
 		{
 			#connect to site container
 			$SiteContainer = $gpm.GetSitesContainer($forest, $domain, $null, $gpmConstants.UseAnyDC)
@@ -351,18 +373,18 @@ function Get-GPSiteLink
 					#add the GPO name
 					Write-Verbose ("Found {0} GPO links" -f ($links | Measure-Object).count)
 					$links | Select-Object @{ Name = "Name"; Expression = { ($gpmDomain.GetGPO($_.GPOID)).DisplayName } },
-								 @{ Name = "Description"; Expression = { ($gpmDomain.GetGPO($_.GPOID)).Description } }, GPOID, Enabled, Enforced, GPODomain, SOMLinkOrder, @{ Name = "SOM"; Expression = { $_.SOM.Path } }
+									   @{ Name = "Description"; Expression = { ($gpmDomain.GetGPO($_.GPOID)).Description } }, GPOID, Enabled, Enforced, GPODomain, SOMLinkOrder, @{ Name = "SOM"; Expression = { $_.SOM.Path } }
 				} #if $links
 			} #if $site
 		} #foreach site  
 		
 	} #process
-	End
+	end
 	{
 		Write-Verbose "Finished"
 	} #end
-} #End function Get-GPSiteLink
-   
+} #end function Get-GPSiteLink
+
 function Get-FQDNfromDN
 {
 <#
@@ -408,16 +430,16 @@ function Get-FQDNfromDN
 		return [string]$fqdn
 	}
 	
-} #End function Get-FQDNfromDN
+} #end function Get-FQDNfromDN
 
 #EndRegion
 
 
 
-
-
 #Region Script
 $Error.Clear()
+
+$dtmFileFormatString = "yyyy-MM-dd_HH-mm-ss"
 
 #Create data table and add columns
 $dtSiteHeaders = ConvertFrom-Csv -InputObject $dtSiteHeadersCsv
@@ -428,9 +450,11 @@ $dtSites = Add-DataTable -TableName $sitesTblName -ColumnArray $dtSiteHeaders
 #Begin collecting AD Site Configuration info.
 $Sites = [System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest().Sites | Sort-Object -Property Name
 
+$getGpSiteLinkDef = ${function:Get-GPSiteLink}.ToString()
+
 $Sites | ForEach-Object -Parallel {
 	
-	#$Site = $_
+	${function:Get-GPSiteLink} = $using:getGpSiteLinkDef
 	
 	$SiteName = [String]$_.Name
 	$SiteLocation = [String]$_.Location
@@ -445,18 +469,18 @@ $Sites | ForEach-Object -Parallel {
 	$gpoNames = @()
 	$siteGPOS = @()
 	
-	If (($adSite).gpLink -eq $null)
+	if (($adSite).gpLink -eq $null)
 	{
 		$gpoNames = "None."
 	}
-	Else
+	else
 	{
-		ForEach ($siteDomain in $_.Domains)
+		foreach ($siteDomain in $_.Domains)
 		{
 			$siteGPOS += Get-GPSiteLink -SiteName $_.Name -Domain $siteDomain -Forest $forestName
 		}
 		
-		ForEach ($siteGPO in $siteGPOS)
+		foreach ($siteGPO in $siteGPOS)
 		{
 			$id = ($siteGPO).GPOID
 			$gpoDom = ($siteGPO).GPODomain
@@ -484,18 +508,28 @@ $Sites | ForEach-Object -Parallel {
 	
 	$table.Rows.Add($siteRow)
 	
-	$SiteLocation = $siteGPOS = $SiteLinks = $SiteName = $SCSubnets = $AdjacentSites = $SiteDomains = $SiteServers = $BridgeHeads = $null
-	$adSite = $gpoNames = $null
-	[GC]::Collect()
+	$null = $SiteLocation = $siteGPOS = $SiteLinks = $SiteName = $SCSubnets = $AdjacentSites = $SiteDomains = $SiteServers = $BridgeHeads
+	$null = $adSite = $gpoNames
+	[System.GC]::GetTotalMemory('ForceFullCollection') | Out-Null
 } -ThrottleLimit $throttleLimit
 
 #EndRegion
 
 #Save output
+$driveRoot = (Get-Location).Drive.Root
+$rptFolder = "{0}{1}" -f $driveRoot, "Reports"
+
 Test-PathExists -Path $rptFolder -PathType Folder
 
+$colToExport = $dtSiteHeaders.ColumnName
+
+Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
+$outputCSV = "{0}\{1}_{2}_Active_Directory_Site_Info.csv" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $forestName
+$dtSites | Select-Object $colToExport | Export-Csv -Path $outputCSV -NoTypeInformation
+
+Write-Verbose ("[{0} UTC] Exporting results data in Excel format, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
 $wsName = "AD Site Configuration"
-$outputFile = "{0}\{1}" -f $rptFolder, "$($forestName)_Active_Directory_Site_Info_as_of_$(Get-ReportDate).xlsx"
+$outputFile = "{0}\{1}_{2}_Active_Directory_Site_Info.xlsx" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $forestName
 $ExcelParams = @{
 	Path	        = $outputFile
 	StartRow     = 2
@@ -505,11 +539,10 @@ $ExcelParams = @{
 	FreezeTopRow = $true
 }
 
-$colToExport = $dtSiteHeaders.ColumnName
 $Excel = $dtSites | Select-Object $colToExport | Sort-Object -Property "Site Name" | Export-Excel @ExcelParams -WorkSheetname $wsName -PassThru
 $Sheet = $Excel.Workbook.Worksheets["AD Site Configuration"]
 $totalRows = $Sheet.Dimension.Rows
 Set-Format -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Bottom -HorizontalAlignment Left
-Export-Excel -ExcelPackage $Excel -WorksheetName $wsName -Title "$($forestName) Active Directory Site Configuration" -TitleSize 16 -TitleBackgroundColor LightBlue -TitleFillPattern Solid
+Export-Excel -ExcelPackage $Excel -WorksheetName $wsName -Title "$($forestName) Active Directory Site Configuration" -TitleSize 18 -TitleBackgroundColor LightBlue -TitleFillPattern Solid
 
 #EndRegion

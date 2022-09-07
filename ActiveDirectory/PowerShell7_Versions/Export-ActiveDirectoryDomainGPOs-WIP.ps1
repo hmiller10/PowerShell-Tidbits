@@ -38,7 +38,7 @@
 #
 # AUTHOR:  Heather Miller
 #
-# VERSION HISTORY: 2.0
+# VERSION HISTORY: 2.0 - Converted output to data table and added CSV file output
 # 
 ###########################################################################
 
@@ -120,10 +120,34 @@ $pdcE = $Domain.pdcEmulator
 $dnsRoot = $Domain.dnsRoot
 
 [int32]$throttleLimit = 100
-$rptFolder = 'E:\Reports'
 
-[PSObject[]]$global:gpoObject = @()
-$colResults = @()
+$gpHeadersCsv =
+@"
+ColumnName,DataType
+"Domain Name",string
+"GPO Name",string
+"GPO GUID",string
+"GPO Creation Time",string
+"GPO Modification Date",string
+"GPO WMIFilter",string
+"GPO Computer Configuration",string
+"GPO Computer Version Directory",string
+"GPO Computer Sysvol Version",string
+"GPO Computer Extensions",string
+"GPO User Configuration",string
+"GPO User Version",string
+"GPO User Sysvol Version",string
+"GPO User Extension",string
+"GPO Links",string
+"GPO Link Enabled",string
+"GPO Link Override",string
+"GPO Owner",string
+"GPO Inherits",string
+"GPO Groups",string
+"GPO Permission Type",string
+"GPO Permissions",string
+"@
+
 #endregion
 
 #Region Functions
@@ -272,26 +296,26 @@ Test-PathExists -Path "C:\temp" -PathFype Folder
 	
 } #end function Test-PathExists
 
-function Get-ReportDate
+function Get-UTCTime
 {
 <#
 	.SYNOPSIS
-		function to get date in format yyyy-MM-dd
+		Get UTC Time
 	
 	.DESCRIPTION
-		function to get date using the Get-Date cmdlet in the format yyyy-MM-dd
+		This functions returns the Universal Coordinated Date and Time. 
 	
 	.EXAMPLE
-		PS C:\> $rptDate = Get-ReportDate
+		PS C:\> Get-UTCTime
 	
 	.NOTES
 		THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE ENTIRE RISK OF 
 		THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH THE USER.
 #>
 	
-	#Begin function get report execution date
-	Get-Date -Format "yyyy-MM-dd"
-} #End function Get-ReportDate
+	#Begin function to get current date and time in UTC format
+	[System.DateTime]::UtcNow
+} #End function Get-UTCTime
 
 function Get-GPOInfo
 {
@@ -491,8 +515,17 @@ function Get-GPOInfo
 
 
 
+
 #Region Script
 $Error.Clear()
+
+$dtmFormatString = "yyyy-MM-dd HH:mm:ss"
+$dtmFileFormatString = "yyyy-MM-dd_HH-mm-ss"
+
+#Add data table to hold output results
+$gpTblName = "$($dnsRoot)_Domain_GPO_Info"
+$gpHeaders = ConvertFrom-Csv -InputObject $gpHeadersCsv
+$gpTable = Add-DataTable -TableName $gpTblName -ColumnArray $gpHeaders
 
 $GPOs = @()
 
@@ -514,7 +547,7 @@ try
 	
 	$getGpoInfoDef = ${function:Get-GPOInfo}.ToString()
 	
-	$colResults = $GPOs | ForEach-Object -Parallel {
+	$GPOs | ForEach-Object -Parallel {
 		
 		${function:Get-GPOInfo} = $using:getGpoInfoDef
 		
@@ -527,36 +560,35 @@ try
 		if ($currentGPO[10] -eq 'true') { $userConfig = "Enabled" }
 		else { $userConfig = "Disabled" }
 		
-		$gpoObject += New-Object -TypeName PSCustomObject -Property ([ordered] @{
-				"Domain Name"			    = $currentGPO[0]
-				"GPO Name"			    = $currentGPO[1]
-				"GPO GUID"			    = $currentGPO[2]
-				"GPO Creation Time"	         = $currentGPO[3]
-				"GPO Modification Date"	    = $currentGPO[4]
-				"GPO WMIFilter"		    = $currentGPO[5]
-				"GPO Computer Configuration" = [String]$computerConfig
-				"GPO Computer Version Directory" = $currentGPO[7]
-				"GPO Computer Sysvol Version" = $currentGPO[8]
-				"GPO Computer Extensions"    = $currentGPO[9]
-				"GPO User Configuration"     = [String]$userConfig
-				"GPO User Version"		    = $currentGPO[11]
-				"GPO User Sysvol Version"    = $currentGPO[12]
-				"GPO User Extension"	    = $currentGPO[13]
-				"GPO Links"			    = $currentGPO[14]
-				"GPO Link Enabled"		    = $currentGPO[15]
-				"GPO Link Override"	         = $currentGPO[16]
-				"GPO Owner"			    = $currentGPO[17]
-				"GPO Inherits"		         = $currentGPO[18]
-				"GPO Groups"			    = $currentGPO[19]
-				"GPO Permission Type"	    = $currentGPO[20]
-				"GPO Permissions"		    = $currentGPO[21]
-				
-			})
+		$table = $using:gpTable
+		$gpRow = $table.NewRow()
+		$gpRow."Domain Name" = $currentGPO[0]
+		$gpRow."GPO Name" = $currentGPO[1]
+		$gpRow."GPO GUID" = $currentGPO[2]
+		$gpRow."GPO Creation Time" = $currentGPO[3]
+		$gpRow."GPO Modification Date" = $currentGPO[4]
+		$gpRow."GPO WMIFilter" = $currentGPO[5]
+		$gpRow."GPO Computer Configuration" = [String]$computerConfig
+		$gpRow."GPO Computer Version Directory" = $currentGPO[7]
+		$gpRow."GPO Computer Sysvol Version" = $currentGPO[8]
+		$gpRow."GPO Computer Extensions" = $currentGPO[9]
+		$gpRow."GPO User Configuration" = [String]$userConfig
+		$gpRow."GPO User Version" = $currentGPO[11]
+		$gpRow."GPO User Sysvol Version" = $currentGPO[12]
+		$gpRow."GPO User Extension" = $currentGPO[13]
+		$gpRow."GPO Links" = $currentGPO[14]
+		$gpRow."GPO Link Enabled" = $currentGPO[15]
+		$gpRow."GPO Link Override" = $currentGPO[16]
+		$gpRow."GPO Owner" = $currentGPO[17]
+		$gpRow."GPO Inherits" = $currentGPO[18]
+		$gpRow."GPO Groups" = $currentGPO[19]
+		$gpRow."GPO Permission Type" = $currentGPO[20]
+		$gpRow."GPO Permissions" = $currentGPO[21]
+		
+		$table.Rows.Add($gpRow)
 		
 		$currentGPO = $computerConfig = $userConfig = $null
-		
-		Write-Output $gpoObject
-		
+
 	} -ThrottleLimit $throttleLimit
 	
 	[System.GC]::GetTotalMemory('ForceFullCollection') | Out-Null
@@ -569,14 +601,23 @@ catch
 finally
 {
 	#Save output
+
+	Write-Verbose -Message "Exporting data tables to Excel spreadsheet tabs."
+	$strDomain = $DomainName.ToString().ToUpper()
+	
+	$driveRoot = (Get-Location).Drive.Root
+	$rptFolder = "{0}{1}" -f $driveRoot, "Reports"
 	
 	Test-PathExists -Path $rptFolder -PathType Folder
 	
-	Write-Verbose -Message "Exporting data tables to Excel spreadsheet tabs."
-	$strDomain = $DomainName.ToString().ToUpper()
-	$outputCSV = "{0}\{1}" -f $rptFolder, "$($strDomain)_GPO_Configuration_as_of_$(Get-ReportDate).csv"
-	$outputFile = "{0}\{1}" -f $rptFolder, "$($strDomain)_GPO_Configuration_as_of_$(Get-ReportDate).xlsx"
+	$colToExport = $gpHeaders.ColumName
 	
+	Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
+	$outputCSV = "{0}\{1}_{2}_Active_Directory_Domain_GPOs_Report.csv" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $strDomain
+	$gpTable | Select-Object $colToExport | Export-Csv -Path $outputCSV -NoTypeInformation
+	
+	Write-Verbose ("[{0} UTC] Exporting results data in Excel format, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
+	$outputFile = "{0}\{1}_{2}_Active_Directory_OU_Structure_Report.xlsx" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $strDomain
 	$ExcelParams = @{
 		Path	        = $outputFile
 		StartRow     = 2
@@ -587,11 +628,10 @@ finally
 		FreezeTopRow = $true
 	}
 	
-	$colResults | Export-Csv -Path $outputCSV -NoTypeInformation
-	$Excel = $colResults | Export-Excel @ExcelParams -WorkSheetname "AD Group Policies" -PassThru
+	$Excel = $gpTable | Select-Object $colToExport | Export-Excel @ExcelParams -WorkSheetname "AD Group Policies" -PassThru
 	$Sheet = $Excel.Workbook.Worksheets["AD Group Policies"]
 	$totalRows = $Sheet.Dimension.Rows
-	Set-Format -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Center -HorizontalAlignment Center
+	Set-Format -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Bottom -HorizontalAlignment Left
 	Export-Excel -ExcelPackage $Excel -WorksheetName "AD Group Policies" -Title "$($strDomain) Active Directory Group Policy Configuration" -TitleFillPattern Solid -TitleSize 18 -TitleBackgroundColor LightBlue
 }
 

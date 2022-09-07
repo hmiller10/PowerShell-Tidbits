@@ -84,7 +84,7 @@ Catch
 
 $forestName = (Get-ADForest).Name.ToString().ToUpper()
 $rootCNC = (Get-ADRootDSE).ConfigurationNamingContext
-$rptFolder = 'E:\Reports'
+
 $dtSLHeadersCSV =
 @"
 ColumnName,DataType
@@ -155,27 +155,6 @@ function Add-DataTable
 	}
 } #end function Add-DataTable
 
-function Get-ReportDate
-{
-<#
-	.SYNOPSIS
-		function to get date in format yyyy-MM-dd
-	
-	.DESCRIPTION
-		function to get date using the Get-Date cmdlet in the format yyyy-MM-dd
-	
-	.EXAMPLE
-		PS C:\> $rptDate = Get-ReportDate
-	
-	.NOTES
-		THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE ENTIRE RISK OF 
-		THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH THE USER.
-#>
-	
-	#Begin function get report execution date
-	Get-Date -Format "yyyy-MM-dd"
-} #End function Get-ReportDate
-
 function Test-PathExists
 {
 <#
@@ -201,53 +180,88 @@ Test-PathExists -Path "C:\temp\SomeFile.txt" -PathType File
 Test-PathExists -Path "C:\temp" -PathFype Folder
 
 #>
-	[CmdletBinding()]
+	
+[CmdletBinding(SupportsShouldProcess = $true)]
 	param
 	(
+		[Parameter( Mandatory = $true,
+				 Position = 0,
+				 HelpMessage = 'Type the file system where the folder or file to check should be verified.')]
+		[string]$Path,
 		[Parameter(Mandatory = $true,
-				 Position = 0)]
-		[String]$Path,
-		[Parameter(Mandatory = $true,
-				 Position = 1)]
-		[Object]$PathType
+				 Position = 1,
+				 HelpMessage = 'Specify path content as file or folder')]
+		[string]$PathType
 	)
 	
-	Begin { $VerbosePreference = 'Continue' }
-	
-	Process
+	begin
 	{
-		Switch ($PathType)
+		$VerbosePreference = 'Continue';
+	}
+	
+	process
+	{
+		switch ($PathType)
 		{
 			File
 			{
-				If ((Test-Path -Path $Path -PathType Leaf) -eq $true)
+				if ((Test-Path -Path $Path -PathType Leaf) -eq $true)
 				{
-					Write-Information -MessageData "File: $Path already exists..."
+					Write-Output ("File: {0} already exists..." -f $Path)
 				}
-				Else
+				else
 				{
-					New-Item -Path $Path -ItemType File -Force
-					Write-Verbose -Message "File: $Path not present, creating new file..."
+					Write-Verbose -Message ("File: {0} not present, creating new file..." -f $Path)
+					if ($PSCmdlet.ShouldProcess($Path, "Create file"))
+					{
+						[System.IO.File]::Create($Path)
+					}
 				}
 			}
 			Folder
 			{
-				If ((Test-Path -Path $Path -PathType Container) -eq $true)
+				if ((Test-Path -Path $Path -PathType Container) -eq $true)
 				{
-					Write-Information -MessageData "Folder: $Path already exists..."
+					Write-Output ("Folder: {0} already exists..." -f $Path)
 				}
-				Else
+				else
 				{
-					New-Item -Path $Path -ItemType Directory -Force
-					Write-Verbose -Message "Folder: $Path not present, creating new folder"
+					Write-Verbose -Message ("Folder: {0} not present, creating new folder..." -f $Path)
+					if ($PSCmdlet.ShouldProcess($Path, "Create folder"))
+					{
+						[System.IO.Directory]::CreateDirectory($Path)
+					}
+					
+					
 				}
 			}
 		}
 	}
 	
-	End { }
+	end { }
 	
 }#end function Test-PathExists
+
+function Get-UTCTime
+{
+<#
+	.SYNOPSIS
+		Get UTC Time
+	
+	.DESCRIPTION
+		This functions returns the Universal Coordinated Date and Time. 
+	
+	.EXAMPLE
+		PS C:\> Get-UTCTime
+	
+	.NOTES
+		THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE ENTIRE RISK OF 
+		THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH THE USER.
+#>
+	
+	#Begin function to get current date and time in UTC format
+	[System.DateTime]::UtcNow
+} #end function Get-UTCTime
 
 #EndRegion
 
@@ -256,8 +270,12 @@ Test-PathExists -Path "C:\temp" -PathFype Folder
 
 
 
+
 #Region Script
 $Error.Clear()
+
+$dtmFormatString = "yyyy-MM-dd HH:mm:ss"
+$dtmFileFormatString = "yyyy-MM-dd_HH-mm-ss"
 
 #Create data table and add columns
 $dtSLHeaders = ConvertFrom-Csv -InputObject $dtSLHeadersCsv
@@ -299,7 +317,7 @@ $siteLinks | ForEach-Object -Parallel {
 	$table.Rows.Add($slpRow)
 	
 	$siteLinkName = $siteLinkType = $linkType = $siteLinkCost = $siteLinkCost = $siteLinkFreq = $siteLinkSchedule = $null
-	[GC]::Collect()
+	[System.GC]::GetTotalMemory('ForceFullCollection') | Out-Null
 
 } -ThrottleLimit $throttleLimit
 
@@ -307,10 +325,21 @@ $siteLinkProps = $null
 #EndRegion
 
 #Save output
+
+$driveRoot = (Get-Location).Drive.Root
+$rptFolder = "{0}{1}" -f $driveRoot, "Reports"
+
 Test-PathExists -Path $rptFolder -PathType Folder
 
+$colToExport =  $dtSLHeaders.ColumnName
+
+Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
+$outputCSV = "{0}\{1}_{2}_Active_Directory_SiteLink_Report.csv" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $forestName
+$dtSL | Select-Object $colToExport | Export-Csv -Path $outputCSV -NoTypeInformation
+
+Write-Verbose ("[{0} UTC] Exporting results data in Excel format, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
 $wsName = "AD Site-Link Configuration"
-$outputFile = "{0}\{1}" -f $rptFolder, "$($forestName)_Active_Directory_SiteLink_Info_as_of_$(Get-ReportDate).xlsx"
+$outputFile = "{0}\{1}_{2}_Active_Directory_SiteLink_Report.xlsx" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $forestName
 $ExcelParams = @{
 	Path	        = $outputFile
 	StartRow     = 2
@@ -321,11 +350,10 @@ $ExcelParams = @{
 	FreezeTopRow = $true
 }
 
-$colToExport = $dtSLHeaders.ColumnName
 $Excel = $dtSL | Select-Object $colToExport | Sort-Object -Property "Site Link Name" | Export-Excel @ExcelParams -WorkSheetname $wsName -PassThru
 $Sheet = $Excel.Workbook.Worksheets["AD Site-Link Configuration"]
 $totalRows = $Sheet.Dimension.Rows
-Set-Format -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Center -HorizontalAlignment Center
+Set-Format -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Bottom -HorizontalAlignment Left
 Export-Excel -ExcelPackage $Excel -WorksheetName $wsName -Title "$($forestName) Active Directory Site-Link Configuration" -TitleSize 18 -TitleBackgroundColor LightBlue -TitleFillPattern Solid
 
 

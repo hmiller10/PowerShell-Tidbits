@@ -1,5 +1,4 @@
-﻿#Requires -Module ActiveDirectory, ImportExcel
-#Requires -Version 7
+﻿#Requires -Version 7
 #Requires -RunAsAdministrator
 <#
 
@@ -31,55 +30,55 @@
 # AUTHOR:  Heather Miller
 #
 # VERSION HISTORY:
-# 1.0 08/18/2021 - Initial release
+# 2.0 09/06/2022 - Improved use of remote script blocks.
 #
 # 
 ###########################################################################
 
 #Region Modules
-Try 
+try
 {
-	Import-Module -Name ActiveDirectory -SkipEditionCheck -ErrorAction Stop
+	Import-Module ActiveDirectory -SkipEditionCheck -ErrorAction Stop
 }
-Catch
+catch
 {
-	Try
+	try
 	{
-	    Import-Module C:\Windows\System32\WindowsPowerShell\v1.0\Modules\ActiveDirectory\ActiveDirectory.psd1 -ErrorAction Stop
+		Import-Module C:\Windows\System32\WindowsPowerShell\v1.0\Modules\ActiveDirectory\ActiveDirectory.psd1 -ErrorAction Stop
 	}
-	Catch
+	catch
 	{
-	   Throw "Active Directory module could not be loaded. $($_.Exception.Message)"
+		throw "Active Directory module could not be loaded. $($_.Exception.Message)"
 	}
 	
 }
 
-Try
+try
 {
 	Import-Module -Name ImportExcel -SkipEditionCheck -ErrorAction Stop
 }
-Catch
+catch
 {
-	Try
+	try
 	{
 		$module = Get-Module -Name ImportExcel;
-		 $modulePath = Split-Path $module.Path;
-		 $psdPath = "{0}\{1}" -f $modulePath, "ImportExcel.psd1"
+		$modulePath = Split-Path $module.Path;
+		$psdPath = "{0}\{1}" -f $modulePath, "ImportExcel.psd1"
 		Import-Module $psdPath -ErrorAction Stop
 	}
-	Catch
+	catch
 	{
-		Throw "ImportExcel PS module could not be loaded. $($_.Exception.Message)"
+		throw "ImportExcel PS module could not be loaded. $($_.Exception.Message)"
 	}
 }
-   
+
 
 #EndRegion
 
 
 #Region Variables
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$sleepDurationSeconds = 5
+
 $Forest = Get-ADForest
 $forestName = ($Forest).Name.ToString().ToUpper()
 $Domains = ($Forest).Domains
@@ -106,7 +105,7 @@ $trustHeadersCsv =
 "@
 
 [int32]$throttleLimit = 20
-$dtmFormatString = "yyyy-MM-dd HH:mm:ss"
+
 #EndRegion
 
 
@@ -169,6 +168,93 @@ function Add-DataTable
 	}
 } #end function Add-DataTable
 
+function Test-PathExists
+{
+<#
+.SYNOPSIS
+Checks if a path to a file or folder exists, and creates it if it does not exist.
+
+.DESCRIPTION
+Checks if a path to a file or folder exists, and creates it if it does not exist.
+
+.PARAMETER Path
+Full path to the file or folder to be checked
+
+.PARAMETER PathType
+Valid options are "File" and "Folder", depending on which to check.
+
+.OUTPUTS
+None
+
+.EXAMPLE
+Test-PathExists -Path "C:\temp\SomeFile.txt" -PathType File
+	
+.EXAMPLE
+Test-PathExists -Path "C:\temp" -PathFype Folder
+
+#>
+	
+[CmdletBinding(SupportsShouldProcess = $true)]
+	param
+	(
+		[Parameter( Mandatory = $true,
+				 Position = 0,
+				 HelpMessage = 'Type the file system where the folder or file to check should be verified.')]
+		[string]$Path,
+		[Parameter(Mandatory = $true,
+				 Position = 1,
+				 HelpMessage = 'Specify path content as file or folder')]
+		[string]$PathType
+	)
+	
+	begin
+	{
+		$VerbosePreference = 'Continue';
+	}
+	
+	process
+	{
+		switch ($PathType)
+		{
+			File
+			{
+				if ((Test-Path -Path $Path -PathType Leaf) -eq $true)
+				{
+					Write-Output ("File: {0} already exists..." -f $Path)
+				}
+				else
+				{
+					Write-Verbose -Message ("File: {0} not present, creating new file..." -f $Path)
+					if ($PSCmdlet.ShouldProcess($Path, "Create file"))
+					{
+						[System.IO.File]::Create($Path)
+					}
+				}
+			}
+			Folder
+			{
+				if ((Test-Path -Path $Path -PathType Container) -eq $true)
+				{
+					Write-Output ("Folder: {0} already exists..." -f $Path)
+				}
+				else
+				{
+					Write-Verbose -Message ("Folder: {0} not present, creating new folder..." -f $Path)
+					if ($PSCmdlet.ShouldProcess($Path, "Create folder"))
+					{
+						[System.IO.Directory]::CreateDirectory($Path)
+					}
+					
+					
+				}
+			}
+		}
+	}
+	
+	end { }
+	
+}#end function Test-PathExists
+
 function Get-FQDNfromDN
 {
 <#
@@ -216,7 +302,8 @@ function Get-FQDNfromDN
 	
 } #End function Get-FQDNfromDN
 
-function Get-UTCTime {
+function Get-UTCTime
+{
 <#
 .SYNOPSIS
 Gets current date and time in UTC format
@@ -234,22 +321,32 @@ SYSTEM.DATETIME in UTC
 Get-UtcTime
 
 #>
-   [System.DateTime]::UtcNow
+	[System.DateTime]::UtcNow
+	
+} #End function Get-UTCTime 
 
-}#End function Get-UTCTime 
-   
 #EndRegion
 
 
-#region Scripts
+
+
+
+#Region Scripts
 $Error.Clear()
+
+$dtmFormatString = "yyyy-MM-dd HH:mm:ss"
+$dtmFileFormatString = "yyyy-MM-dd_HH-mm-ss"
 
 #Create data table and add columns
 $trustTblName = "$($forestName)_Domain_Trust_Info"
 $trustHeaders = ConvertFrom-Csv -InputObject $trustHeadersCsv
 $trustTable = Add-DataTable -TableName $trustTblName -ColumnArray $trustHeaders
-$Domains | ForEach-Object -Parallel {
 
+$fnGetFQDNfromDNDef = ${function:Get-FQDNfromDN}.ToString()
+
+$Domains | ForEach-Object -Parallel {
+	
+	${function:Get-FQDNfromDN} = $using:fnGetFQDNfromDNDef
 	
 	# List of properties of a trust relationship
 	$trusts = @()
@@ -266,7 +363,6 @@ $Domains | ForEach-Object -Parallel {
 	
 	$pdcFSMO = ($domainInfo).PDCEmulator
 	$domDNS = ($domainInfo).DNSRoot
-	
 	
 	try
 	{
@@ -310,14 +406,15 @@ $Domains | ForEach-Object -Parallel {
 			0 { $trustAttributes = "Inbound Trust" }
 			1 { $trustAttributes = "Non-Transitive" }
 			2 { $trustAttributes = "Uplevel clients only (Windows 2000 or newer" }
-			4 { $trustAttributes = "Quarantined Domain (External)" }
+			4 {
+				$trustAttributes = "Quarantined Domain (External)" }
 			8 { $trustAttributes = "Forest Trust" }
 			16 { $trustAttributes = "Cross-Organizational Trust (Selective Authentication)" }
 			20 { $trustAttributes = "Intra-Forest Trust (trust within the forest)" }
 			32 { $trustAttributes = "Intra-Forest Trust (trust within the forest)" }
 			64 { $trustAttributes = "Inter-Forest Trust (trust with another forest)" }
 			68 { $trustAttributes = "Quarantined Domain (External)" }
-			4194304 { $trustAttributes = "Obsolete value combination"}
+			4194304 { $trustAttributes = "Obsolete value combination" }
 			Default { $trustAttributes = $TrustAttributesNumber }
 			
 		}
@@ -365,26 +462,28 @@ $Domains | ForEach-Object -Parallel {
 		$trustRow."AD Trust whenCreated" = $whenCreated
 		$trustRow."AD Trust whenChanged" = $whenTrustChanged
 		
-		
 		$table.Rows.Add($trustRow)
-		[GC]::Collect()
+		[System.GC]::GetTotalMemory('ForceFullCollection') | Out-Null
 	}
-
+	
 } -ThrottleLimit $throttleLimit
 
 
 #Save output
 #Check required folders and files exist, create if needed
-$rptFolder = 'E:\Reports'
-if ((Test-Path -Path $rptFolder -PathType Container) -eq $false) { New-Item -Path $rptFolder -ItemType Directory -Force }
+$driveRoot = (Get-Location).Drive.Root
+$rptFolder = "{0}{1}" -f $driveRoot, "Reports"
+
+Test-PathExists -Path $rptFolder -PathType Folder
+
 $ttColToExport = $trustHeaders.ColumnName
 
-Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f [datetime]::UtcNow.ToString($dtmFormatString))
-$outputCsv = "{0}\{1}-{2}" -f $rptFolder, $(Get-UTCTime).ToString("yyyy-MM-dd_HH-mm-ss"), "{0}-Forest_Trust_Info.csv" -f $forestName
+Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
+$outputCsv = "{0}\{1}-{2}-Forest_Trust_Info.csv" -f $rptFolder, $(Get-UTCTime).ToString($dtmFileFormatString), $forestName
 $trustTable | Select-Object $ttColToExport | Export-Csv -Path $outputCsv -NoTypeInformation
 
-Write-Verbose ("[{0} UTC] Exporting results data in Excel format, please wait..." -f [datetime]::UtcNow.ToString($dtmFormatString))
-$outputFile = "{0}\{1}-{2}" -f $rptFolder, $(Get-UTCTime).ToString("yyyy-MM-dd_HH-mm-ss"), "{0}-Forest_Trust_Info.xlsx" -f $forestName
+Write-Verbose ("[{0} UTC] Exporting results data in Excel format, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
+$outputFile = "{0}\{1}-{2}-Forest_Trust_Info.xlsx" -f $rptFolder, $(Get-UTCTime).ToString($dtmFileFormatString), $forestName
 
 $wsName = "AD Trust Configuration"
 $ExcelParams = @{
@@ -397,28 +496,10 @@ $ExcelParams = @{
 	FreezeTopRow = $true
 }
 
-
 $xl = $trustTable | Select-Object $ttColToExport | Export-Excel @ExcelParams -WorkSheetname $wsName -Passthru
 $Sheet = $xl.Workbook.Worksheets["AD Trust Configuration"]
 $totalRows = $Sheet.Dimension.Rows
-Set-ExcelRange -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -HorizontalAlignment Left -VerticalAlignment Bottom
-Export-Excel -ExcelPackage $xl -WorksheetName $wsName -Title "$($forestName) Active Directory Trust Configuration" -TitleFillPattern Solid -TitleSize 14 -TitleBold -TitleBackgroundColor LightBlue
-
-
-if (($Error).Count -eq 0)
-{
-	[String]$status = "Success"
-}
-else
-{
-	[String]$status = "Failed"
-	if ($colJobErrors.Count -gt 0)
-	{
-		$fileStamp = (Get-Date).ToString("yyyy-MM-dd_HH-mm-ss")
-		$errorFileName = "US_MF_CertRpt_Errors_as_of_{0}.csv" -f $fileStamp
-		$errorFile = "{0}\{1}" -f $rptFolder, $errorFileName
-		$colJobErrors | Export-Csv -Path $errorFile -Append -NoTypeInformation
-	}
-}
+Set-ExcelRange -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Bottom -HorizontalAlignment Left
+Export-Excel -ExcelPackage $xl -WorksheetName $wsName -Title "$($forestName) Active Directory Trust Configuration" -TitleFillPattern Solid -TitleSize 18 -TitleBold -TitleBackgroundColor LightBlue
 
 #EndRegion

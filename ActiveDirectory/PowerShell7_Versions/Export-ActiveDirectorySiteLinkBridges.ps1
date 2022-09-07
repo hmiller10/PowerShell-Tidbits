@@ -1,5 +1,4 @@
-﻿#Requires -Module ActiveDirectory, ImportExcel
-#Requires -Version 7
+﻿#Requires -Version 7
 #Requires -RunAsAdministrator
 <#
 
@@ -30,7 +29,7 @@
 #
 # AUTHOR:  Heather Miller
 #
-# VERSION HISTORY: 1.0
+# VERSION HISTORY: 2.0 - Improved looping efficiencies
 # 
 ###########################################################################
 
@@ -41,39 +40,39 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned
 
 #Region Modules
 #Check if required module is loaded, if not load import it
-Try 
+try
 {
-	Import-Module ActiveDirectory -ErrorAction Stop
+	Import-Module ActiveDirectory -SkipEditionCheck -ErrorAction Stop
 }
-Catch
+catch
 {
-	Try
+	try
 	{
-	    Import-Module C:\Windows\System32\WindowsPowerShell\v1.0\Modules\ActiveDirectory\ActiveDirectory.psd1 -ErrorAction Stop
+		Import-Module C:\Windows\System32\WindowsPowerShell\v1.0\Modules\ActiveDirectory\ActiveDirectory.psd1 -ErrorAction Stop
 	}
-	Catch
+	catch
 	{
-	   Throw "Active Directory module could not be loaded. $($_.Exception.Message)"
+		throw "Active Directory module could not be loaded. $($_.Exception.Message)"
 	}
 	
 }
 
-Try
+try
 {
 	Import-Module ImportExcel -Force
 }
-Catch
+catch
 {
-	Try
+	try
 	{
 		$module = Get-Module -Name ImportExcel;
-		 $modulePath = Split-Path $module.Path;
-		 $psdPath = "{0}\{1}" -f $modulePath, "ImportExcel.psd1"
+		$modulePath = Split-Path $module.Path;
+		$psdPath = "{0}\{1}" -f $modulePath, "ImportExcel.psd1"
 		Import-Module $psdPath -ErrorAction Stop
 	}
-	Catch
+	catch
 	{
-		Throw "ImportExcel PS module could not be loaded. $($_.Exception.Message)"
+		throw "ImportExcel PS module could not be loaded. $($_.Exception.Message)"
 	}
 }
 
@@ -83,7 +82,7 @@ Catch
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $forestName = (Get-ADForest).Name.ToString().ToUpper()
-$rptFolder = 'E:\Reports'
+
 $dtSLBHeadersCSV =
 @"
 ColumnName,DataType
@@ -126,29 +125,30 @@ function Add-DataTable
 		[Parameter(Mandatory = $true,
 				 Position = 0)]
 		[ValidateNotNullOrEmpty()]
-		[String]$TableName,  #'TableName'
+		[String]$TableName,
+		#'TableName'
 		[Parameter(Mandatory = $true,
 				 Position = 1)]
 		[ValidateNotNullOrEmpty()]
-		$ColumnArray  #'DataColumnDefinitions'
+		$ColumnArray #'DataColumnDefinitions'
 	)
 	
 	
-	Begin
+	begin
 	{
 		$dt = $null
 		$dt = New-Object System.Data.DataTable("$TableName")
 	}
-	Process
+	process
 	{
-		ForEach ($col in $ColumnArray)
+		foreach ($col in $ColumnArray)
 		{
 			[void]$dt.Columns.Add([System.Data.DataColumn]$col.ColumnName.ToString(), $col.DataType)
 		}
 	}
-	End
+	end
 	{
-		Write-Output @(,$dt)
+		Write-Output @( ,$dt)
 	}
 } #end function Add-DataTable
 
@@ -177,82 +177,100 @@ Test-PathExists -Path "C:\temp\SomeFile.txt" -PathType File
 Test-PathExists -Path "C:\temp" -PathFype Folder
 
 #>
-	[CmdletBinding()]
+	
+[CmdletBinding(SupportsShouldProcess = $true)]
 	param
 	(
+		[Parameter( Mandatory = $true,
+				 Position = 0,
+				 HelpMessage = 'Type the file system where the folder or file to check should be verified.')]
+		[string]$Path,
 		[Parameter(Mandatory = $true,
-				 Position = 0)]
-		[String]$Path,
-		[Parameter(Mandatory = $true,
-				 Position = 1)]
-		[Object]$PathType
+				 Position = 1,
+				 HelpMessage = 'Specify path content as file or folder')]
+		[string]$PathType
 	)
 	
-	Begin { $VerbosePreference = 'Continue' }
-	
-	Process
+	begin
 	{
-		Switch ($PathType)
+		$VerbosePreference = 'Continue';
+	}
+	
+	process
+	{
+		switch ($PathType)
 		{
 			File
 			{
-				If ((Test-Path -Path $Path -PathType Leaf) -eq $true)
+				if ((Test-Path -Path $Path -PathType Leaf) -eq $true)
 				{
-					Write-Information -MessageData "File: $Path already exists..."
+					Write-Output ("File: {0} already exists..." -f $Path)
 				}
-				Else
+				else
 				{
-					New-Item -Path $Path -ItemType File -Force
-					Write-Verbose -Message "File: $Path not present, creating new file..."
+					Write-Verbose -Message ("File: {0} not present, creating new file..." -f $Path)
+					if ($PSCmdlet.ShouldProcess($Path, "Create file"))
+					{
+						[System.IO.File]::Create($Path)
+					}
 				}
 			}
 			Folder
 			{
-				If ((Test-Path -Path $Path -PathType Container) -eq $true)
+				if ((Test-Path -Path $Path -PathType Container) -eq $true)
 				{
-					Write-Information -MessageData "Folder: $Path already exists..."
+					Write-Output ("Folder: {0} already exists..." -f $Path)
 				}
-				Else
+				else
 				{
-					New-Item -Path $Path -ItemType Directory -Force
-					Write-Verbose -Message "Folder: $Path not present, creating new folder"
+					Write-Verbose -Message ("Folder: {0} not present, creating new folder..." -f $Path)
+					if ($PSCmdlet.ShouldProcess($Path, "Create folder"))
+					{
+						[System.IO.Directory]::CreateDirectory($Path)
+					}
+					
+					
 				}
 			}
 		}
 	}
 	
-	End { }
+	end { }
 	
 }#end function Test-PathExists
 
-function Get-ReportDate
+function Get-UTCTime
 {
 <#
 	.SYNOPSIS
-		function to get date in format yyyy-MM-dd
+		Get UTC Time
 	
 	.DESCRIPTION
-		function to get date using the Get-Date cmdlet in the format yyyy-MM-dd
+		This functions returns the Universal Coordinated Date and Time. 
 	
 	.EXAMPLE
-		PS C:\> $rptDate = Get-ReportDate
+		PS C:\> Get-UTCTime
 	
 	.NOTES
 		THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE ENTIRE RISK OF 
 		THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH THE USER.
 #>
 	
-	#Begin function get report execution date
-	Get-Date -Format "yyyy-MM-dd"
-} #End function Get-ReportDate
+	#Begin function to get current date and time in UTC format
+	[System.DateTime]::UtcNow
+} #End function Get-UTCTime
 
 #EndRegion
 
 
 
 
+
 #Region Script
 $Error.Clear()
+
+$dtmFormatString = "yyyy-MM-dd HH:mm:ss"
+$dtmFileFormatString = "yyyy-MM-dd_HH-mm-ss"
 
 #Create data table and add columns
 $dtSLBHeaders = ConvertFrom-Csv -InputObject $dtSLBHeadersCsv
@@ -279,18 +297,29 @@ $SiteLinkBridges | ForEach-Object -Parallel {
 	$table.Rows.Add($slbRow)
 	
 	$slbName = $slbDN = $slbLinksIncluded = $null
-	[GC]::Collect()
-
+	[System.GC]::GetTotalMemory('ForceFullCollection') | Out-Null
+	
 } -ThrottleLimit $throttleLimit
 
-$SiteLinkBridges = $null
+$null = $SiteLinkBridges
 #EndRegion
 
 #Save output
+$driveRoot = (Get-Location).Drive.Root
+$rptFolder = "{0}{1}" -f $driveRoot, "Reports"
+
 Test-PathExists -Path $rptFolder -PathType Folder
 
 $wsName = "AD Site-Link Bridge Config"
-$outputFile = "{0}\{1}" -f $rptFolder, "$($forestName)_Active_Directory_Site_Link_Bridge_Info_as_of_$(Get-ReportDate).xlsx"
+
+$colToExport = $dtSLBHeaders.ColumnName
+
+Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
+$outputCSV = "{0}\{1}_{2}_Active_Directory_Site_Link_Bridge_Info.csv" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $forestName
+$dtSLB | Select-Object $colToExport | Export-Csv -Path $outputCSV -NoTypeInformation
+
+Write-Verbose ("[{0} UTC] Exporting results data in Excel format, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
+$outputFile = "{0}\{1}_{2}_Active_Directory_Site_Link_Bridge_Info.xlsx" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $forestName
 $ExcelParams = @{
 	Path	        = $outputFile
 	StartRow     = 2
@@ -301,10 +330,9 @@ $ExcelParams = @{
 	FreezeTopRow = $true
 }
 
-$colToExport = $dtSLBHeaders.ColumnName
 $Excel = $dtSLB | Select-Object $colToExport | Sort-Object -Property "Site Link Bridge Name" | Export-Excel @ExcelParams -WorkSheetname $wsName -PassThru
 $Sheet = $Excel.Workbook.Worksheets["AD Site-Link Bridge Config"]
 $totalRows = $Sheet.Dimension.Rows
-Set-Format -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Center -HorizontalAlignment Center
+Set-Format -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Bottom -HorizontalAlignment Left
 Export-Excel -ExcelPackage $Excel -WorksheetName $wsName -Title "$($forestName) Active Directory Site-Link Bridge Configuration" -TitleSize 18 -TitleBackgroundColor LightBlue -TitleFillPattern Solid
 #EndRegion

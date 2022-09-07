@@ -111,8 +111,18 @@ $dnsRoot = $Domain.DnsRoot
 
 [int32]$throttleLimit = 100
 
-[PSObject[]]$global:ouObject = @()
-$colResults = @()
+$ouHeadersCsv =
+@"
+ColumnName,DataType
+"Domain",string
+"OU Name",string
+"Parent OU",string
+"Child OUs",string
+"Managed By",string
+"Delegated Objects",string
+"Linked GPOs",string
+"@
+
 #endregion
 
 #Region Functions
@@ -295,7 +305,12 @@ $dtmFileFormatString = "yyyy-MM-dd_HH-mm-ss"
 #List properties to be collected into array for writing to OU tab
 $OUs = @()
 $ouProps = @("distinguishedName", "gpLink", "LinkedGroupPolicyObjects", "ManagedBy", "Name", "objectCategory", "objectClass", "whenCreated", "whenChanged")
-	
+
+#Add data table to hold output results
+$ouTblName = "$($Domain.DnsRoot)_OU_Info"
+$ouHeaders = ConvertFrom-Csv -InputObject $ouHeadersCsv
+$ouTable = Add-DataTable -TableName $ouTblName -ColumnArray $ouHeaders
+
 Write-Verbose -Message ("Gathering collection of AD Organizational Units for {0}" -f $Domain.Name)
 try
 {
@@ -314,7 +329,7 @@ try
 		}
 	}
 	
-	$colResults = $OUs | ForEach-Object -Parallel {
+	$OUs | ForEach-Object -Parallel {
 
 		$OU = $_
 		$ouGPOs = @()
@@ -417,21 +432,21 @@ try
 			Write-Error $errorMessage -ErrorAction Continue
 		}
 		
-		$ouObject += New-Object -TypeName PSCustomObject -Property ([ordered] @{
-			"Domain" = $using:dnsRoot
-			"OU Name" = $ouDN
-			"Parent OU" = $ouParentName
-			"Child OUs" = $ChildOUs
-			"Managed By" =  $ouMgr
-			"Linked GPOs" = $ouGPODisplayNames
-			"Delegated Objects" = "See separate report."
-			"When Created" = $ouCreated
-			"When Changed" = $ouLastModified
-			})
+		$table = $using:ouTable
+		$ouRow = $table.NewRow()
+		$ouRow."Domain" = $domDNS
+		$ouRow."OU Name" = $ouDN
+		$ouRow."Parent OU" = $ouParentName
+		$ouRow."Child OUs" = $ChildOUs
+		$ouRow."Managed By" = $ouMgr
+		$ouRow."Delegated Objects" = "See separate report" #$OUDelegatePerms -join "`n"
+		$ouRow."Linked GPOs" = $ouGPODisplayNames
 		
-		$ouDN = $ChildOUs = $OUParent = $ouParentName = $ouChildNames = $ouGPOs = $ouGPONames = $ouGPODisplayNames = $null
+		$table.Rows.Add($ouRow)
 		
-		Write-Output $ouObject
+		$null = $ouDN = $ChildOUs = $OUParent = $ouParentName = $ouChildNames = $ChildOUs = $ouMgr = $ouGPOs = $ouGPONames = $ouGPODisplayNames
+		[System.GC]::GetTotalMemory('ForceFullCollection') | Out-Null
+
 	} -ThrottleLimit $throttleLimit
 	
 	$null = $OUs
@@ -453,9 +468,11 @@ finally
 	
 	$strDomain = $DomainName.ToString().ToUpper()
 	
+	$colToExport = $ouHeaders.ColumnName
+	
 	Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
 	$outputCSV = "{0}\{1}_{2}_Active_Directory_OU_Structure_Report.csv" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $strDomain
-	$colResults | Export-Csv -Path $outputCSV -NoTypeInformation
+	$ouTable | Select-Object $colToExport | Export-Csv -Path $outputCSV -NoTypeInformation
 	
 	Write-Verbose ("[{0} UTC] Exporting results data in Excel format, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
 	$outputFile = "{0}\{1}_{2}_Active_Directory_OU_Structure_Report.xlsx" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $strDomain
@@ -468,11 +485,11 @@ finally
 		BoldTopRow   = $true
 		FreezeTopRow = $true
 	}
-
-	$Excel = $colResults | Export-Excel @ExcelParams -WorkSheetname "AD Organizational Units" -PassThru
+	
+	$Excel = $ouTable | Select-Object $colToExport | Export-Excel @ExcelParams -WorkSheetname "AD Organizational Units" -PassThru
 	$Sheet = $Excel.Workbook.Worksheets["AD Organizational Units"]
 	$totalRows = $Sheet.Dimension.Rows
-	Set-Format -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Center -HorizontalAlignment Center
+	Set-Format -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Bottom -HorizontalAlignment Left
 	Export-Excel -ExcelPackage $Excel -WorksheetName "AD Organizational Units" -Title "$($strDomain) Active Directory OU Configuration"  -TitleFillPattern Solid -TitleSize 18 -TitleBackgroundColor LightBlue
 }
 

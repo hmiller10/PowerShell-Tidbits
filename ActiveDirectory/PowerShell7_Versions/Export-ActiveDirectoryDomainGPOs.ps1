@@ -1,4 +1,5 @@
-﻿#Requires -Version 7
+﻿#Requires -Module ActiveDirectory, ImportExcel, GroupPolicy
+#Requires -Version 7
 #Requires -RunAsAdministrator
 <#
 	.NOTES
@@ -33,15 +34,6 @@
 	https://github.com/dfinke/ImportExcel
 #>
 
-###########################################################################
-#
-#
-# AUTHOR:  Heather Miller
-#
-# VERSION HISTORY: 2.0
-# 
-###########################################################################
-
 [CmdletBinding()]
 param
 (
@@ -55,58 +47,58 @@ param
 
 #Region Modules
 #Check if required module is loaded, if not load import it
-try
+Try 
 {
-	Import-Module ActiveDirectory -SkipEditionCheck -ErrorAction Stop
+	Import-Module ActiveDirectory -ErrorAction Stop
 }
-catch
+Catch
 {
-	try
+	Try
 	{
-		Import-Module C:\Windows\System32\WindowsPowerShell\v1.0\Modules\ActiveDirectory\ActiveDirectory.psd1 -ErrorAction Stop
+	    Import-Module C:\Windows\System32\WindowsPowerShell\v1.0\Modules\ActiveDirectory\ActiveDirectory.psd1 -ErrorAction Stop
 	}
-	catch
+	Catch
 	{
-		throw "Active Directory module could not be loaded. $($_.Exception.Message)"
+	   Throw "Active Directory module could not be loaded. $($_.Exception.Message)"
 	}
 	
 }
 
-try
+Try
 {
 	Import-Module ImportExcel -Force
 }
-catch
+Catch
 {
-	try
+	Try
 	{
 		$module = Get-Module -Name ImportExcel;
-		$modulePath = Split-Path $module.Path;
-		$psdPath = "{0}\{1}" -f $modulePath, "ImportExcel.psd1"
+		 $modulePath = Split-Path $module.Path;
+		 $psdPath = "{0}\{1}" -f $modulePath, "ImportExcel.psd1"
 		Import-Module $psdPath -ErrorAction Stop
 	}
-	catch
+	Catch
 	{
-		throw "ImportExcel PS module could not be loaded. $($_.Exception.Message)"
+		Throw "ImportExcel PS module could not be loaded. $($_.Exception.Message)"
 	}
 }
 
-try
+Try 
 {
-	Import-Module GroupPolicy -SkipEditionCheck -ErrorAction Stop
+	Import-Module GroupPolicy -ErrorAction Stop
 }
-catch
+Catch
 {
-	throw "Group Policy module could not be loaded. $($_.Exception.Message)"
+	Throw "Group Policy module could not be loaded. $($_.Exception.Message)"
 }
 #EndRegion
 
-#Region Variables
+#region Variables
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $domainParams = @{
-	Identity    = $DomainName
-	Server	  = $DomainName
+	Identity = $DomainName
+	Server = $DomainName
 	ErrorAction = 'Stop'
 }
 
@@ -158,30 +150,29 @@ function Add-DataTable
 		[Parameter(Mandatory = $true,
 				 Position = 0)]
 		[ValidateNotNullOrEmpty()]
-		[String]$TableName,
-		#'TableName'
+		[String]$TableName,  #'TableName'
 		[Parameter(Mandatory = $true,
 				 Position = 1)]
 		[ValidateNotNullOrEmpty()]
-		$ColumnArray #'DataColumnDefinitions'
+		$ColumnArray  #'DataColumnDefinitions'
 	)
 	
 	
-	begin
+	Begin
 	{
 		$dt = $null
 		$dt = New-Object System.Data.DataTable("$TableName")
 	}
-	process
+	Process
 	{
-		foreach ($col in $ColumnArray)
+		ForEach ($col in $ColumnArray)
 		{
 			[void]$dt.Columns.Add([System.Data.DataColumn]$col.ColumnName.ToString(), $col.DataType)
 		}
 	}
-	end
+	End
 	{
-		Write-Output @( ,$dt)
+		Write-Output @(,$dt)
 	}
 } #end function Add-DataTable
 
@@ -210,67 +201,53 @@ Test-PathExists -Path "C:\temp\SomeFile.txt" -PathType File
 Test-PathExists -Path "C:\temp" -PathFype Folder
 
 #>
-	
-	[CmdletBinding(SupportsShouldProcess = $true)]
+	[CmdletBinding()]
 	param
 	(
 		[Parameter(Mandatory = $true,
-				 Position = 0,
-				 HelpMessage = 'Type the file system where the folder or file to check should be verified.')]
-		[string]$Path,
+				 Position = 0)]
+		[String]$Path,
 		[Parameter(Mandatory = $true,
-				 Position = 1,
-				 HelpMessage = 'Specify path content as file or folder')]
-		[string]$PathType
+				 Position = 1)]
+		[Object]$PathType
 	)
 	
-	begin
-	{
-		$VerbosePreference = 'Continue';
-	}
+	Begin { $VerbosePreference = 'Continue' }
 	
-	process
+	Process
 	{
-		switch ($PathType)
+		Switch ($PathType)
 		{
 			File
 			{
-				if ((Test-Path -Path $Path -PathType Leaf) -eq $true)
+				If ((Test-Path -Path $Path -PathType Leaf) -eq $true)
 				{
-					Write-Output ("File: {0} already exists..." -f $Path)
+					Write-Information -MessageData "File: $Path already exists..."
 				}
-				else
+				Else
 				{
-					Write-Verbose -Message ("File: {0} not present, creating new file..." -f $Path)
-					if ($PSCmdlet.ShouldProcess($Path, "Create file"))
-					{
-						[System.IO.File]::Create($Path)
-					}
+					New-Item -Path $Path -ItemType File -Force
+					Write-Verbose -Message "File: $Path not present, creating new file..."
 				}
 			}
 			Folder
 			{
-				if ((Test-Path -Path $Path -PathType Container) -eq $true)
+				If ((Test-Path -Path $Path -PathType Container) -eq $true)
 				{
-					Write-Output ("Folder: {0} already exists..." -f $Path)
+					Write-Information -MessageData "Folder: $Path already exists..."
 				}
-				else
+				Else
 				{
-					Write-Verbose -Message ("Folder: {0} not present, creating new folder..." -f $Path)
-					if ($PSCmdlet.ShouldProcess($Path, "Create folder"))
-					{
-						[System.IO.Directory]::CreateDirectory($Path)
-					}
-					
-					
+					New-Item -Path $Path -ItemType Directory -Force
+					Write-Verbose -Message "Folder: $Path not present, creating new folder"
 				}
 			}
 		}
 	}
 	
-	end { }
+	End { }
 	
-} #end function Test-PathExists
+}#end function Test-PathExists
 
 function Get-ReportDate
 {
@@ -293,8 +270,37 @@ function Get-ReportDate
 	Get-Date -Format "yyyy-MM-dd"
 } #End function Get-ReportDate
 
-function Get-GPOInfo
+#EndRegion
+
+
+
+
+
+#Region Script
+$Error.Clear()
+
+$GPOs = @()
+
+try
 {
+	$GPOs = Get-GPO -Domain $DomainName -Server $pdcE -All
+	if (!($?))
+	{
+		try
+		{
+			$GPOs = Get-GPO -Domain $domDNS -Server $dnsRoot -All
+		}
+		catch
+		{
+			$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+			Write-Error $errorMessage -ErrorAction Continue
+		}
+	}
+	
+	$colResults = $GPOs | ForEach-Object -Parallel {
+		
+		function Get-GPOInfo
+		{
 		<#
 			.SYNOPSIS
 				Function to return GPO properties
@@ -316,211 +322,178 @@ function Get-GPOInfo
 				THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE ENTIRE RISK OF 
 				THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH THE USER.
 		#>
-	
-	#Begin function to get GPO properties
-	[CmdletBinding()]
-	param
-	(
-		[Parameter(Mandatory = $true,
-				 ValueFromPipeline = $true,
-				 Position = 0)]
-		[ValidateNotNullOrEmpty()]
-		$DomainFQDN,
-		[Parameter(Mandatory = $true,
-				 ValueFromPipeline = $true,
-				 Position = 1)]
-		[ValidateNotNullOrEmpty()]
-		$GpoGUID
-	)
-	
-	begin
-	{
-		#Gets the XML version of the GPO Report
-		$GPOReport = Get-GPOReport -GUID $gpoGUID -ReportType XML -Domain $DomainFQDN
-	}
-	process
-	{
-		#Converts it to an XML variable for manipulation
-		$GPOXML = [xml]$GPOReport
+			
+			#Begin function to get GPO properties
+			[CmdletBinding()]
+			param
+			(
+				[Parameter(Mandatory = $true,
+						 ValueFromPipeline = $true,
+						 Position = 0)]
+				[ValidateNotNullOrEmpty()]
+				$DomainFQDN,
+				[Parameter(Mandatory = $true,
+						 ValueFromPipeline = $true,
+						 Position = 1)]
+				[ValidateNotNullOrEmpty()]
+				$gpoGUID
+			)
+			
+			begin
+			{
+				#Gets the XML version of the GPO Report
+				$GPOReport = Get-GPOReport -GUID $gpoGUID -ReportType XML -Domain $DomainFQDN
+			}
+			process
+			{
+				#Converts it to an XML variable for manipulation
+				$GPOXML = [xml]$GPOReport
+				
+				#Create array to store info
+				$GPOInfo = @()
+				
+				#Get's info from XML and adds to array
+				#General Information
+				
+				#$GPODomain = $GPOXML.GPO.Domain
+				$GPOInfo += , $DomainFQDN
+				#$GPODomain = $GPOXML.Identifier.Domain
+				#$GPOInfo += , $GPODomain
+				
+				$Name = $GPOXML.GPO.Name
+				Write-Verbose -Message "Working on GPO $($Name)."
+				$GPOInfo += , $Name
+				
+				$GPOGUID = $GPOXML.GPO.Identifier.Identifier.'#text'
+				$GPOInfo += , $GPOGUID
+				
+				if (!([string]::IsNullOrEmpty($GPOXML.GPO.CreatedTime)))
+				{
+					[DateTime]$Created = $GPOXML.GPO.CreatedTime
+					$GPOInfo += , $Created.ToString("G")
+				}
+				else
+				{
+					$Created = "No Creation Date Available."
+					$GPOInfo += , $Created
+				}
+				
+				
+				[DateTime]$Modified = $GPOXML.GPO.ModifiedTime
+				$GPOInfo += , $Modified.ToString("G")
+				
+				#WMI Filter
+				if ($GPOXML.GPO.FilterName)
+				{
+					$WMIFilter = $GPOXML.GPO.FilterName
+				}
+				else
+				{
+					$WMIFilter = "<none>"
+				}
+				$GPOInfo += , $WMIFilter
+				
+				#Computer Configuration
+				$ComputerEnabled = $GPOXML.GPO.Computer.Enabled
+				$GPOInfo += , $ComputerEnabled
+				
+				$ComputerVerDir = $GPOXML.GPO.Computer.VersionDirectory
+				$GPOInfo += , $ComputerVerDir
+				
+				$ComputerVerSys = $GPOXML.GPO.Computer.VersionSysvol
+				$GPOInfo += , $ComputerVerSys
+				
+				if ($GPOXML.GPO.Computer.ExtensionData)
+				{
+					$ComputerExtensions = $GPOXML.GPO.Computer.ExtensionData | ForEach-Object { $_.Name }
+					$ComputerExtensions = [String]::join("`n", $ComputerExtensions)
+				}
+				else
+				{
+					$ComputerExtensions = "<none>"
+				}
+				$GPOInfo += , $ComputerExtensions
+				
+				#User Configuration
+				$UserEnabled = $GPOXML.GPO.User.Enabled
+				$GPOInfo += , $UserEnabled
+				
+				$UserVerDir = $GPOXML.GPO.User.VersionDirectory
+				$GPOInfo += , $UserVerDir
+				
+				$UserVerSys = $GPOXML.GPO.User.VersionSysvol
+				$GPOInfo += , $UserVerSys
+				
+				if ($GPOXML.GPO.User.ExtensionData)
+				{
+					$UserExtensions = $GPOXML.GPO.User.ExtensionData | ForEach-Object { $_.Name }
+					$UserExtensions = [string]::join("`n", $UserExtensions)
+				}
+				else
+				{
+					$UserExtensions = "<none>"
+				}
+				$GPOInfo += , $UserExtensions
+				
+				#Links
+				if ($GPOXML.GPO.LinksTo)
+				{
+					$Links = $GPOXML.GPO.LinksTo | ForEach-Object { $_.SOMPath }
+					$Links = [string]::join("`n", $Links)
+					$LinksEnabled = $GPOXML.GPO.LinksTo | ForEach-Object { $_.Enabled }
+					$LinksEnabled = [string]::join("`n", $LinksEnabled)
+					$LinksNoOverride = $GPOXML.GPO.LinksTo | ForEach-Object { $_.NoOverride }
+					$LinksNoOverride = [string]::join("`n", $LinksNoOverride)
+				}
+				else
+				{
+					$Links = "<none>"
+					$LinksEnabled = "<none>"
+					$LinksNoOverride = "<none>"
+				}
+				$GPOInfo += , $Links
+				$GPOInfo += , $LinksEnabled
+				$GPOInfo += , $LinksNoOverride
+				
+				#Security Info
+				$Owner = $GPOXML.GPO.SecurityDescriptor.Owner.Name.'#text'
+				$GPOInfo += , $Owner
+				
+				$SecurityInherits = $GPOXML.GPO.SecurityDescriptor.Permissions.InheritsFromParent
+				$SecurityInherits = [string]::join("`n", $SecurityInherits)
+				$GPOInfo += , $SecurityInherits
+				
+				$SecurityGroups = $GPOXML.GPO.SecurityDescriptor.Permissions.TrusteePermissions | ForEach-Object { $_.Trustee.Name.'#text' }
+				if ($null -ne $SecurityGroups)
+				{
+					$SecurityGroups = [string]::join("`n", $SecurityGroups)
+					$GPOInfo += , $SecurityGroups
+				}
+				else
+				{
+					$SecurityGroups = "None."
+					$GPOInfo += , $SecurityGroups
+				}
+				
+				$SecurityType = $GPOXML.GPO.SecurityDescriptor.Permissions.TrusteePermissions | ForEach-Object { $_.Type.PermissionType }
+				$SecurityType = [string]::join("`n", $SecurityType)
+				$GPOInfo += , $SecurityType
+				
+				$SecurityPerms = $GPOXML.GPO.SecurityDescriptor.Permissions.TrusteePermissions | ForEach-Object { $_.Standard.GPOGroupedAccessEnum }
+				$SecurityPerms = [string]::join("`n", $SecurityPerms)
+				$GPOInfo += , $SecurityPerms
+			}
+			end
+			{
+				return $GPOInfo
+			}
+			
+		} #End function Get-GPOInfo
 		
-		#Create array to store info
-		$GPOInfo = @()
 		
-		#Get's info from XML and adds to array
-		#General Information
+		$currentGPO = Get-GPOInfo -DomainFQDN $using:dnsRoot -gpoGUID $_.ID
 		
-		#$GPODomain = $GPOXML.GPO.Domain
-		$GPOInfo += , $DomainFQDN
-		#$GPODomain = $GPOXML.Identifier.Domain
-		#$GPOInfo += , $GPODomain
-		
-		$Name = $GPOXML.GPO.Name
-		Write-Verbose -Message "Working on GPO $($Name)."
-		$GPOInfo += , $Name
-		
-		$GPOGUID = $GPOXML.GPO.Identifier.Identifier.'#text'
-		$GPOInfo += , $GPOGUID
-		
-		if (!([string]::IsNullOrEmpty($GPOXML.GPO.CreatedTime)))
-		{
-			[DateTime]$Created = $GPOXML.GPO.CreatedTime
-			$GPOInfo += , $Created.ToString("G")
-		}
-		else
-		{
-			$Created = "No Creation Date Available."
-			$GPOInfo += , $Created
-		}
-		
-		
-		[DateTime]$Modified = $GPOXML.GPO.ModifiedTime
-		$GPOInfo += , $Modified.ToString("G")
-		
-		#WMI Filter
-		if ($GPOXML.GPO.FilterName)
-		{
-			$WMIFilter = $GPOXML.GPO.FilterName
-		}
-		else
-		{
-			$WMIFilter = "<none>"
-		}
-		$GPOInfo += , $WMIFilter
-		
-		#Computer Configuration
-		$ComputerEnabled = $GPOXML.GPO.Computer.Enabled
-		$GPOInfo += , $ComputerEnabled
-		
-		$ComputerVerDir = $GPOXML.GPO.Computer.VersionDirectory
-		$GPOInfo += , $ComputerVerDir
-		
-		$ComputerVerSys = $GPOXML.GPO.Computer.VersionSysvol
-		$GPOInfo += , $ComputerVerSys
-		
-		if ($GPOXML.GPO.Computer.ExtensionData)
-		{
-			$ComputerExtensions = $GPOXML.GPO.Computer.ExtensionData | ForEach-Object { $_.Name }
-			$ComputerExtensions = [String]::join("`n", $ComputerExtensions)
-		}
-		else
-		{
-			$ComputerExtensions = "<none>"
-		}
-		$GPOInfo += , $ComputerExtensions
-		
-		#User Configuration
-		$UserEnabled = $GPOXML.GPO.User.Enabled
-		$GPOInfo += , $UserEnabled
-		
-		$UserVerDir = $GPOXML.GPO.User.VersionDirectory
-		$GPOInfo += , $UserVerDir
-		
-		$UserVerSys = $GPOXML.GPO.User.VersionSysvol
-		$GPOInfo += , $UserVerSys
-		
-		if ($GPOXML.GPO.User.ExtensionData)
-		{
-			$UserExtensions = $GPOXML.GPO.User.ExtensionData | ForEach-Object { $_.Name }
-			$UserExtensions = [string]::join("`n", $UserExtensions)
-		}
-		else
-		{
-			$UserExtensions = "<none>"
-		}
-		$GPOInfo += , $UserExtensions
-		
-		#Links
-		if ($GPOXML.GPO.LinksTo)
-		{
-			$Links = $GPOXML.GPO.LinksTo | ForEach-Object { $_.SOMPath }
-			$Links = [string]::join("`n", $Links)
-			$LinksEnabled = $GPOXML.GPO.LinksTo | ForEach-Object { $_.Enabled }
-			$LinksEnabled = [string]::join("`n", $LinksEnabled)
-			$LinksNoOverride = $GPOXML.GPO.LinksTo | ForEach-Object { $_.NoOverride }
-			$LinksNoOverride = [string]::join("`n", $LinksNoOverride)
-		}
-		else
-		{
-			$Links = "<none>"
-			$LinksEnabled = "<none>"
-			$LinksNoOverride = "<none>"
-		}
-		$GPOInfo += , $Links
-		$GPOInfo += , $LinksEnabled
-		$GPOInfo += , $LinksNoOverride
-		
-		#Security Info
-		$Owner = $GPOXML.GPO.SecurityDescriptor.Owner.Name.'#text'
-		$GPOInfo += , $Owner
-		
-		$SecurityInherits = $GPOXML.GPO.SecurityDescriptor.Permissions.InheritsFromParent
-		$SecurityInherits = [string]::join("`n", $SecurityInherits)
-		$GPOInfo += , $SecurityInherits
-		
-		$SecurityGroups = $GPOXML.GPO.SecurityDescriptor.Permissions.TrusteePermissions | ForEach-Object { $_.Trustee.Name.'#text' }
-		if ($null -ne $SecurityGroups)
-		{
-			$SecurityGroups = [string]::join("`n", $SecurityGroups)
-			$GPOInfo += , $SecurityGroups
-		}
-		else
-		{
-			$SecurityGroups = "None."
-			$GPOInfo += , $SecurityGroups
-		}
-		
-		$SecurityType = $GPOXML.GPO.SecurityDescriptor.Permissions.TrusteePermissions | ForEach-Object { $_.Type.PermissionType }
-		$SecurityType = [string]::join("`n", $SecurityType)
-		$GPOInfo += , $SecurityType
-		
-		$SecurityPerms = $GPOXML.GPO.SecurityDescriptor.Permissions.TrusteePermissions | ForEach-Object { $_.Standard.GPOGroupedAccessEnum }
-		$SecurityPerms = [string]::join("`n", $SecurityPerms)
-		$GPOInfo += , $SecurityPerms
-	}
-	end
-	{
-		return $GPOInfo
-	}
-	
-} #End function Get-GPOInfo
-
-#EndRegion
-
-
-
-
-
-
-#Region Script
-$Error.Clear()
-
-$GPOs = @()
-
-try
-{
-	$GPOs = Get-GPO -Domain $DomainName -Server $pdcE -All
-	if ($? -eq $false)
-	{
-		try
-		{
-			$GPOs = Get-GPO -Domain $domDNS -Server $dnsRoot -All
-		}
-		catch
-		{
-			$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
-			Write-Error $errorMessage -ErrorAction Continue
-		}
-	}
-	
-	$getGpoInfoDef = ${function:Get-GPOInfo}.ToString()
-	
-	$colResults = $GPOs | ForEach-Object -Parallel {
-		
-		${function:Get-GPOInfo} = $using:getGpoInfoDef
-		
-		$currentGPO = Get-GPOInfo -DomainFQDN $using:dnsRoot -GpoGUID $_.ID
-		
-		Write-Verbose -Message "Processing AD GPO $($currentGPO[1]) for domain $($using:dnsRoot)."
+		Write-Verbose -Message "Processing AD GPO $($currentGPO[1]) for domain $($domDNS)."
 		if ($currentGPO[6] -eq 'true') { $computerConfig = "Enabled" }
 		else { $computerConfig = "Disabled" }
 		
@@ -528,38 +501,38 @@ try
 		else { $userConfig = "Disabled" }
 		
 		$gpoObject += New-Object -TypeName PSCustomObject -Property ([ordered] @{
-				"Domain Name"			    = $currentGPO[0]
-				"GPO Name"			    = $currentGPO[1]
-				"GPO GUID"			    = $currentGPO[2]
-				"GPO Creation Time"	         = $currentGPO[3]
-				"GPO Modification Date"	    = $currentGPO[4]
-				"GPO WMIFilter"		    = $currentGPO[5]
-				"GPO Computer Configuration" = [String]$computerConfig
-				"GPO Computer Version Directory" = $currentGPO[7]
-				"GPO Computer Sysvol Version" = $currentGPO[8]
-				"GPO Computer Extensions"    = $currentGPO[9]
-				"GPO User Configuration"     = [String]$userConfig
-				"GPO User Version"		    = $currentGPO[11]
-				"GPO User Sysvol Version"    = $currentGPO[12]
-				"GPO User Extension"	    = $currentGPO[13]
-				"GPO Links"			    = $currentGPO[14]
-				"GPO Link Enabled"		    = $currentGPO[15]
-				"GPO Link Override"	         = $currentGPO[16]
-				"GPO Owner"			    = $currentGPO[17]
-				"GPO Inherits"		         = $currentGPO[18]
-				"GPO Groups"			    = $currentGPO[19]
-				"GPO Permission Type"	    = $currentGPO[20]
-				"GPO Permissions"		    = $currentGPO[21]
-				
-			})
+			"Domain Name" = $currentGPO[0]
+			"GPO Name" = $currentGPO[1]
+			"GPO GUID" = $currentGPO[2]
+			"GPO Creation Time" = $currentGPO[3]
+			"GPO Modification Date" = $currentGPO[4]
+			"GPO WMIFilter" = $currentGPO[5]
+			"GPO Computer Configuration" = [String]$computerConfig
+			"GPO Computer Version Directory" = $currentGPO[7]
+			"GPO Computer Sysvol Version" = $currentGPO[8]
+			"GPO Computer Extensions" = $currentGPO[9]
+			"GPO User Configuration" = [String]$userConfig
+			"GPO User Version" = $currentGPO[11]
+			"GPO User Sysvol Version" = $currentGPO[12]
+			"GPO User Extension" = $currentGPO[13]
+			"GPO Links" = $currentGPO[14]
+			"GPO Link Enabled" = $currentGPO[15]
+			"GPO Link Override" = $currentGPO[16]
+			"GPO Owner" = $currentGPO[17]
+			"GPO Inherits" = $currentGPO[18]
+			"GPO Groups" = $currentGPO[19]
+			"GPO Permission Type" = $currentGPO[20]
+			"GPO Permissions" = $currentGPO[21]
+		
+		})
 		
 		$currentGPO = $computerConfig = $userConfig = $null
 		
 		Write-Output $gpoObject
-		
+			
 	} -ThrottleLimit $throttleLimit
 	
-	[System.GC]::GetTotalMemory('ForceFullCollection') | Out-Null
+	[System.GC]::GetTotalMemory('forcefullcollection') | out-null
 }
 catch
 {
@@ -576,7 +549,7 @@ finally
 	$strDomain = $DomainName.ToString().ToUpper()
 	$outputCSV = "{0}\{1}" -f $rptFolder, "$($strDomain)_GPO_Configuration_as_of_$(Get-ReportDate).csv"
 	$outputFile = "{0}\{1}" -f $rptFolder, "$($strDomain)_GPO_Configuration_as_of_$(Get-ReportDate).xlsx"
-	
+
 	$ExcelParams = @{
 		Path	        = $outputFile
 		StartRow     = 2
@@ -592,7 +565,7 @@ finally
 	$Sheet = $Excel.Workbook.Worksheets["AD Group Policies"]
 	$totalRows = $Sheet.Dimension.Rows
 	Set-Format -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Center -HorizontalAlignment Center
-	Export-Excel -ExcelPackage $Excel -WorksheetName "AD Group Policies" -Title "$($strDomain) Active Directory Group Policy Configuration" -TitleFillPattern Solid -TitleSize 18 -TitleBackgroundColor LightBlue
+	Export-Excel -ExcelPackage $Excel -WorksheetName "AD Group Policies" -Title "$($strDomain) Active Directory Group Policy Configuration"  -TitleFillPattern Solid -TitleSize 18 -TitleBackgroundColor LightBlue
 }
 
 #endregion

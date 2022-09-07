@@ -1,4 +1,5 @@
-﻿#Requires -Version 7
+﻿#Requires -Module ActiveDirectory, ImportExcel
+#Requires -Version 7
 #Requires -RunAsAdministrator
 <#
 
@@ -40,24 +41,24 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned
 
 #Region Modules
 #Check if required module is loaded, if not load import it
-try
+Try 
 {
-	Import-Module ActiveDirectory -SkipEditionCheck -ErrorAction Stop
+	Import-Module ActiveDirectory -ErrorAction Stop
 }
-catch
+Catch
 {
-	try
+	Try
 	{
-		Import-Module C:\Windows\System32\WindowsPowerShell\v1.0\Modules\ActiveDirectory\ActiveDirectory.psd1 -ErrorAction Stop
+	    Import-Module C:\Windows\System32\WindowsPowerShell\v1.0\Modules\ActiveDirectory\ActiveDirectory.psd1 -ErrorAction Stop
 	}
-	catch
+	Catch
 	{
-		throw "Active Directory module could not be loaded. $($_.Exception.Message)"
+	   Throw "Active Directory module could not be loaded. $($_.Exception.Message)"
 	}
 	
 }
 
-try
+Try
 {
 	Import-Module ImportExcel -Force
 }
@@ -250,7 +251,6 @@ Test-PathExists -Path "C:\temp" -PathFype Folder
 }#end function Test-PathExists
 
 #EndRegion
-
 
 
 

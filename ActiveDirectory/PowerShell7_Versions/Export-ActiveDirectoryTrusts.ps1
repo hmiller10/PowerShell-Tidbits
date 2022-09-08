@@ -237,12 +237,102 @@ Get-UtcTime
    [System.DateTime]::UtcNow
 
 }#End function Get-UTCTime 
-   
+
+function Test-PathExists
+{
+<#
+.SYNOPSIS
+Checks if a path to a file or folder exists, and creates it if it does not exist.
+
+.DESCRIPTION
+Checks if a path to a file or folder exists, and creates it if it does not exist.
+
+.PARAMETER Path
+Full path to the file or folder to be checked
+
+.PARAMETER PathType
+Valid options are "File" and "Folder", depending on which to check.
+
+.OUTPUTS
+None
+
+.EXAMPLE
+Test-PathExists -Path "C:\temp\SomeFile.txt" -PathType File
+	
+.EXAMPLE
+Test-PathExists -Path "C:\temp" -PathFype Folder
+
+#>
+	
+[CmdletBinding(SupportsShouldProcess = $true)]
+	param
+	(
+		[Parameter( Mandatory = $true,
+				 Position = 0,
+				 HelpMessage = 'Type the file system where the folder or file to check should be verified.')]
+		[string]$Path,
+		[Parameter(Mandatory = $true,
+				 Position = 1,
+				 HelpMessage = 'Specify path content as file or folder')]
+		[string]$PathType
+	)
+	
+	begin
+	{
+		$VerbosePreference = 'Continue';
+	}
+	
+	process
+	{
+		switch ($PathType)
+		{
+			File
+			{
+				if ((Test-Path -Path $Path -PathType Leaf) -eq $true)
+				{
+					Write-Output ("File: {0} already exists..." -f $Path)
+				}
+				else
+				{
+					Write-Verbose -Message ("File: {0} not present, creating new file..." -f $Path)
+					if ($PSCmdlet.ShouldProcess($Path, "Create file"))
+					{
+						[System.IO.File]::Create($Path)
+					}
+				}
+			}
+			Folder
+			{
+				if ((Test-Path -Path $Path -PathType Container) -eq $true)
+				{
+					Write-Output ("Folder: {0} already exists..." -f $Path)
+				}
+				else
+				{
+					Write-Verbose -Message ("Folder: {0} not present, creating new folder..." -f $Path)
+					if ($PSCmdlet.ShouldProcess($Path, "Create folder"))
+					{
+						[System.IO.Directory]::CreateDirectory($Path)
+					}
+					
+					
+				}
+			}
+		}
+	}
+	
+	end { }
+	
+}#end function Test-PathExists
+
 #EndRegion
 
 
 #region Scripts
 $Error.Clear()
+
+$dtmFormatString = "yyyy-MM-dd HH:mm:ss"
+$dtmFileFormatString = "yyyy-MM-dd_HH-mm-ss"
 
 #Create data table and add columns
 $trustTblName = "$($forestName)_Domain_Trust_Info"
@@ -374,18 +464,20 @@ $Domains | ForEach-Object -Parallel {
 
 
 #Save output
-#Check required folders and files exist, create if needed
-$rptFolder = 'E:\Reports'
-if ((Test-Path -Path $rptFolder -PathType Container) -eq $false) { New-Item -Path $rptFolder -ItemType Directory -Force }
+$driveRoot = (Get-Location).Drive.Root
+$rptFolder = "{0}{1}" -f $driveRoot, "Reports"
+
+Test-PathExists -Path $rptFolder -PathType Folder
+
 $ttColToExport = $trustHeaders.ColumnName
 
-Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f [datetime]::UtcNow.ToString($dtmFormatString))
-$outputCsv = "{0}\{1}-{2}" -f $rptFolder, $(Get-UTCTime).ToString("yyyy-MM-dd_HH-mm-ss"), "{0}-Forest_Trust_Info.csv" -f $forestName
+Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
+$outputCsv = "{0}\{1}-{2}-Forest_Trust_Info.csv" -f $rptFolder, $(Get-UTCTime).ToString("yyyy-MM-dd_HH-mm-ss"), $forestName
 $trustTable | Select-Object $ttColToExport | Export-Csv -Path $outputCsv -NoTypeInformation
 
-Write-Verbose ("[{0} UTC] Exporting results data in Excel format, please wait..." -f [datetime]::UtcNow.ToString($dtmFormatString))
-$outputFile = "{0}\{1}-{2}" -f $rptFolder, $(Get-UTCTime).ToString("yyyy-MM-dd_HH-mm-ss"), "{0}-Forest_Trust_Info.xlsx" -f $forestName
 
+Write-Verbose ("[{0} UTC] Exporting results data in Excel format, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
+$outputFile = "{0}\{1}-{2}-Forest_Trust_Info.xlsx" -f $rptFolder, $(Get-UTCTime).ToString("yyyy-MM-dd_HH-mm-ss"), $forestName
 $wsName = "AD Trust Configuration"
 $ExcelParams = @{
 	Path	        = $outputFile
@@ -397,28 +489,10 @@ $ExcelParams = @{
 	FreezeTopRow = $true
 }
 
-
 $xl = $trustTable | Select-Object $ttColToExport | Export-Excel @ExcelParams -WorkSheetname $wsName -Passthru
 $Sheet = $xl.Workbook.Worksheets["AD Trust Configuration"]
 $totalRows = $Sheet.Dimension.Rows
-Set-ExcelRange -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -HorizontalAlignment Left -VerticalAlignment Bottom
-Export-Excel -ExcelPackage $xl -WorksheetName $wsName -Title "$($forestName) Active Directory Trust Configuration" -TitleFillPattern Solid -TitleSize 14 -TitleBold -TitleBackgroundColor LightBlue
-
-
-if (($Error).Count -eq 0)
-{
-	[String]$status = "Success"
-}
-else
-{
-	[String]$status = "Failed"
-	if ($colJobErrors.Count -gt 0)
-	{
-		$fileStamp = (Get-Date).ToString("yyyy-MM-dd_HH-mm-ss")
-		$errorFileName = "US_MF_CertRpt_Errors_as_of_{0}.csv" -f $fileStamp
-		$errorFile = "{0}\{1}" -f $rptFolder, $errorFileName
-		$colJobErrors | Export-Csv -Path $errorFile -Append -NoTypeInformation
-	}
-}
+Set-ExcelRange -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Bottom -HorizontalAlignment Left
+Export-Excel -ExcelPackage $xl -WorksheetName $wsName -Title "$($forestName) Active Directory Trust Configuration" -TitleFillPattern Solid -TitleSize 18 -TitleBold -TitleBackgroundColor LightBlue
 
 #EndRegion

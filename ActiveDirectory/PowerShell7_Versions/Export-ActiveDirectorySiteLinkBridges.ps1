@@ -83,7 +83,7 @@ Catch
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $forestName = (Get-ADForest).Name.ToString().ToUpper()
-$rptFolder = 'E:\Reports'
+
 $dtSLBHeadersCSV =
 @"
 ColumnName,DataType
@@ -252,59 +252,87 @@ function Get-ReportDate
 
 
 #Region Script
-$Error.Clear()
-
-#Create data table and add columns
-$dtSLBHeaders = ConvertFrom-Csv -InputObject $dtSLBHeadersCsv
-$slbTableName = "$($forestName)_AD_SiteLinkBridges"
-$dtSLB = Add-DataTable -TableName $slbTableName -ColumnArray $dtSLBHeaders
-
-#Region SiteLinkBridgeConfig
-
-#Begin collecting AD Site Link Bridge Configuration info.
-$SiteLinkBridges = Get-ADReplicationSiteLinkBridge -Filter * -Properties * | Sort-Object -Property Name
-
-$SiteLinkBridges | ForEach-Object -Parallel {
-	$slbName = [String]$_.Name
-	$slbDN = [String]$_.distinguishedName
-	$slbLinksIncluded = [String]($_.SiteLinksIncluded -join "`n")
+try
+{
+	$Error.Clear()
 	
-	$table = $using:dtSLB
-	$slbRow = $table.NewRow()
-	$slbRow."Site Link Bridge Name" = $slbName
-	$slbRow."Site Link Bridge DN" = $slbDN
-	$slbRow."Site Links In Bridge" = $slbLinksIncluded
+	$dtmFormatString = "yyyy-MM-dd HH:mm:ss"
+	$dtmFileFormatString = "yyyy-MM-dd_HH-mm-ss"
 	
+	#Create data table and add columns
+	$dtSLBHeaders = ConvertFrom-Csv -InputObject $dtSLBHeadersCsv
+	$slbTableName = "$($forestName)_AD_SiteLinkBridges"
+	$dtSLB = Add-DataTable -TableName $slbTableName -ColumnArray $dtSLBHeaders
 	
-	$table.Rows.Add($slbRow)
+	#Region SiteLinkBridgeConfig
 	
-	$slbName = $slbDN = $slbLinksIncluded = $null
-	[GC]::Collect()
-
-} -ThrottleLimit $throttleLimit
-
-$SiteLinkBridges = $null
-#EndRegion
-
-#Save output
-Test-PathExists -Path $rptFolder -PathType Folder
-
-$wsName = "AD Site-Link Bridge Config"
-$outputFile = "{0}\{1}" -f $rptFolder, "$($forestName)_Active_Directory_Site_Link_Bridge_Info_as_of_$(Get-ReportDate).xlsx"
-$ExcelParams = @{
-	Path	        = $outputFile
-	StartRow     = 2
-	StartColumn  = 1
-	AutoSize     = $true
-	AutoFilter   = $true
-	BoldTopRow   = $true
-	FreezeTopRow = $true
+	#Begin collecting AD Site Link Bridge Configuration info.
+	$SiteLinkBridges = Get-ADReplicationSiteLinkBridge -Filter * -Properties * | Sort-Object -Property Name
+	
+	$SiteLinkBridges | ForEach-Object -Parallel {
+		$slbName = [String]$_.Name
+		$slbDN = [String]$_.distinguishedName
+		$slbLinksIncluded = [String]($_.SiteLinksIncluded -join "`n")
+		
+		$table = $using:dtSLB
+		$slbRow = $table.NewRow()
+		$slbRow."Site Link Bridge Name" = $slbName
+		$slbRow."Site Link Bridge DN" = $slbDN
+		$slbRow."Site Links In Bridge" = $slbLinksIncluded
+		
+		
+		$table.Rows.Add($slbRow)
+		
+		$slbName = $slbDN = $slbLinksIncluded = $null
+		[System.GC]::GetTotalMemory('ForceFullCollection') | Out-Null
+		
+	} -ThrottleLimit $throttleLimit
+	
+	$SiteLinkBridges = $null
+	#EndRegion
+}
+catch
+{
+	$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+	Write-Error $errorMessage -ErrorAction Continue
+}
+finally
+{
+	#Save output
+	$driveRoot = (Get-Location).Drive.Root
+	$rptFolder = "{0}{1}" -f $driveRoot, "Reports"
+	
+	Test-PathExists -Path $rptFolder -PathType Folder
+	
+	$colToExport = $dtSLBHeaders.ColumnName
+	
+	if ($dtSLB.Rows.Count -gt 1)
+	{
+		Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
+		$outputCsv = "{0}\{1}-{2}_Active_Directory_Site_Link_Bridge_Info.csv" -f $rptFolder, $(Get-UTCTime).ToString("yyyy-MM-dd_HH-mm-ss"), $forestName
+		$dtSL | Select-Object $ttColToExport | Export-Csv -Path $outputCsv -NoTypeInformation
+		
+		Write-Verbose ("[{0} UTC] Exporting results data in Excel format, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
+		$wsName = "AD Site-Link Bridge Config"
+		$outputFile = "{0}\{1}-{2}_Active_Directory_Site_Link_Bridge_Info.xlsx" -f $rptFolder, $(Get-UTCTime).ToString("yyyy-MM-dd_HH-mm-ss"), $forestName
+		
+		$ExcelParams = @{
+			Path	        = $outputFile
+			StartRow     = 2
+			StartColumn  = 1
+			AutoSize     = $true
+			AutoFilter   = $true
+			BoldTopRow   = $true
+			FreezeTopRow = $true
+		}
+		
+		$Excel = $dtSLB | Select-Object $colToExport | Sort-Object -Property "Site Link Bridge Name" | Export-Excel @ExcelParams -WorkSheetname $wsName -PassThru
+		$Sheet = $Excel.Workbook.Worksheets["AD Site-Link Bridge Config"]
+		$totalRows = $Sheet.Dimension.Rows
+		Set-Format -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Center -HorizontalAlignment Center
+		Export-Excel -ExcelPackage $Excel -WorksheetName $wsName -Title "$($forestName) Active Directory Site-Link Bridge Configuration" -TitleSize 18 -TitleBackgroundColor LightBlue -TitleFillPattern Solid
+	}
+	
 }
 
-$colToExport = $dtSLBHeaders.ColumnName
-$Excel = $dtSLB | Select-Object $colToExport | Sort-Object -Property "Site Link Bridge Name" | Export-Excel @ExcelParams -WorkSheetname $wsName -PassThru
-$Sheet = $Excel.Workbook.Worksheets["AD Site-Link Bridge Config"]
-$totalRows = $Sheet.Dimension.Rows
-Set-Format -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Center -HorizontalAlignment Center
-Export-Excel -ExcelPackage $Excel -WorksheetName $wsName -Title "$($forestName) Active Directory Site-Link Bridge Configuration" -TitleSize 18 -TitleBackgroundColor LightBlue -TitleFillPattern Solid
 #EndRegion

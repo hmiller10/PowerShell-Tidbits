@@ -1,38 +1,39 @@
-﻿#Requires -Module ActiveDirectory, ImportExcel
-#Requires -Version 7
+﻿#Requires -Version 7
 #Requires -RunAsAdministrator
 <#
-
-.NOTES
-	THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE
-	ENTIRE RISK OF THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS
-	WITH THE USER.
-
-.SYNOPSIS
-	Export AD Site Info to Excel. Requires PowerShell module ImportExcel
-
-.DESCRIPTION
-	This script is desigend to gather and report information on all Active Directory sites
-	in a given forest.
-
-.LINK
-	https://github.com/dfinke/ImportExcel
-
-.OUTPUTS
-	Excel file containing relevant site information
-
-.EXAMPLE 
-	.\Export-ActiveDirectorySiteInfo.ps1
-
+	.SYNOPSIS
+		Export AD Site Info to Excel. Requires PowerShell module ImportExcel
+	
+	.DESCRIPTION
+		This script is desigend to gather and report information on all Active Directory sites
+		in a given forest.
+	
+	.EXAMPLE
+		.\Export-ActiveDirectorySiteInfo.ps1
+	
+	.OUTPUTS
+		Excel file containing relevant site information
+	
+	.NOTES
+		THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE
+		ENTIRE RISK OF THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS
+		WITH THE USER.
+	
+	.LINK
+		https://github.com/dfinke/ImportExcel
 #>
 ###########################################################################
 #
 #
 # AUTHOR:  Heather Miller
 #
-# VERSION HISTORY: 1.0
+# VERSION HISTORY: 2.0
 # 
 ###########################################################################
+
+
+[CmdletBinding()]
+param ()
 
 #Region Execution Policy
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned
@@ -40,49 +41,49 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned
 
 #Region Modules
 #Check if required module is loaded, if not load import it
-Try 
+try
 {
-	Import-Module ActiveDirectory -ErrorAction Stop
+	Import-Module ActiveDirectory -SkipEditionCheck -ErrorAction Stop
 }
-Catch
+catch
 {
-	Try
+	try
 	{
-	    Import-Module C:\Windows\System32\WindowsPowerShell\v1.0\Modules\ActiveDirectory\ActiveDirectory.psd1 -ErrorAction Stop
+		Import-Module C:\Windows\System32\WindowsPowerShell\v1.0\Modules\ActiveDirectory\ActiveDirectory.psd1 -ErrorAction Stop
 	}
-	Catch
+	catch
 	{
-	   Throw "Active Directory module could not be loaded. $($_.Exception.Message)"
+		throw "Active Directory module could not be loaded. $($_.Exception.Message)"
 	}
 	
 }
 
-Try
+try
 {
 	Import-Module ImportExcel -Force
 }
-Catch
+catch
 {
-	Try
+	try
 	{
 		$module = Get-Module -Name ImportExcel;
-		 $modulePath = Split-Path $module.Path;
-		 $psdPath = "{0}\{1}" -f $modulePath, "ImportExcel.psd1"
+		$modulePath = Split-Path $module.Path;
+		$psdPath = "{0}\{1}" -f $modulePath, "ImportExcel.psd1"
 		Import-Module $psdPath -ErrorAction Stop
 	}
-	Catch
+	catch
 	{
-		Throw "ImportExcel PS module could not be loaded. $($_.Exception.Message)"
+		throw "ImportExcel PS module could not be loaded. $($_.Exception.Message)"
 	}
 }
-   
-Try 
+
+try
 {
 	Import-Module GroupPolicy -ErrorAction Stop
 }
-Catch
+catch
 {
-	Throw "Group Policy module could not be loaded. $($_.Exception.Message)"
+	throw "Group Policy module could not be loaded. $($_.Exception.Message)"
 }
 #EndRegion
 
@@ -138,32 +139,33 @@ function Add-DataTable
 	[OutputType([System.Data.DataTable])]
 	param
 	(
-		[Parameter(Mandatory = $true,
-				 Position = 0)]
-		[ValidateNotNullOrEmpty()]
-		[String]$TableName,  #'TableName'
-		[Parameter(Mandatory = $true,
-				 Position = 1)]
-		[ValidateNotNullOrEmpty()]
-		$ColumnArray  #'DataColumnDefinitions'
+	[Parameter(Mandatory = $true,
+			 Position = 0)]
+	[ValidateNotNullOrEmpty()]
+	[String]$TableName,
+	#'TableName'
+	[Parameter(Mandatory = $true,
+			 Position = 1)]
+	[ValidateNotNullOrEmpty()]
+	$ColumnArray #'DataColumnDefinitions'
 	)
 	
 	
-	Begin
+	begin
 	{
 		$dt = $null
 		$dt = New-Object System.Data.DataTable("$TableName")
 	}
-	Process
+	process
 	{
-		ForEach ($col in $ColumnArray)
+		foreach ($col in $ColumnArray)
 		{
 			[void]$dt.Columns.Add([System.Data.DataColumn]$col.ColumnName.ToString(), $col.DataType)
 		}
 	}
-	End
+	end
 	{
-		Write-Output @(,$dt)
+		Write-Output @( ,$dt)
 	}
 } #end function Add-DataTable
 
@@ -195,27 +197,27 @@ Test-PathExists -Path "C:\temp" -PathFype Folder
 	[CmdletBinding()]
 	param
 	(
-		[Parameter(Mandatory = $true,
-				 Position = 0)]
-		[String]$Path,
-		[Parameter(Mandatory = $true,
-				 Position = 1)]
-		[Object]$PathType
+	[Parameter(Mandatory = $true,
+			 Position = 0)]
+	[String]$Path,
+	[Parameter(Mandatory = $true,
+			 Position = 1)]
+	[Object]$PathType
 	)
 	
-	Begin { $VerbosePreference = 'Continue' }
+	begin { $VerbosePreference = 'Continue' }
 	
-	Process
+	process
 	{
-		Switch ($PathType)
+		switch ($PathType)
 		{
 			File
 			{
-				If ((Test-Path -Path $Path -PathType Leaf) -eq $true)
+				if ((Test-Path -Path $Path -PathType Leaf) -eq $true)
 				{
 					Write-Information -MessageData "File: $Path already exists..."
 				}
-				Else
+				else
 				{
 					New-Item -Path $Path -ItemType File -Force
 					Write-Verbose -Message "File: $Path not present, creating new file..."
@@ -223,11 +225,11 @@ Test-PathExists -Path "C:\temp" -PathFype Folder
 			}
 			Folder
 			{
-				If ((Test-Path -Path $Path -PathType Container) -eq $true)
+				if ((Test-Path -Path $Path -PathType Container) -eq $true)
 				{
 					Write-Information -MessageData "Folder: $Path already exists..."
 				}
-				Else
+				else
 				{
 					New-Item -Path $Path -ItemType Directory -Force
 					Write-Verbose -Message "Folder: $Path not present, creating new folder"
@@ -236,9 +238,9 @@ Test-PathExists -Path "C:\temp" -PathFype Folder
 		}
 	}
 	
-	End { }
+	end { }
 	
-}#end function Test-PathExists
+} #end function Test-PathExists
 
 function Get-UTCTime
 {
@@ -265,248 +267,234 @@ function Get-UTCTime
 
 
 
-
 #Region Script
-$Error.Clear()
-
-$dtmFormatString = "yyyy-MM-dd HH:mm:ss"
-$dtmFileFormatString = "yyyy-MM-dd_HH-mm-ss"
-
-#Create data table and add columns
-$dtSiteHeaders = ConvertFrom-Csv -InputObject $dtSiteHeadersCsv
-$sitesTblName = "$($forestName)_AD_Sites_Info"
-$dtSites = Add-DataTable -TableName $sitesTblName -ColumnArray $dtSiteHeaders
-
-#Region SiteConfig
-#Begin collecting AD Site Configuration info.
-$Sites = [System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest().Sites | Sort-Object -Property Name
-
-$Sites | ForEach-Object -Parallel {
+try
+{
+	$Error.Clear()
 	
-#	function Get-GPSiteLink
-#	{
-#	<#
-#		.SYNOPSIS
-#			function to get GPOs linked to an AD site
-#		
-#		.DESCRIPTION
-#			This function will return all group policy objects linked to an AD site.
-#		
-#		.PARAMETER SiteName
-#			Active Directory site name
-#		
-#		.PARAMETER Domain
-#			Active Directory Domain
-#		
-#		.PARAMETER Forest
-#			Active Directory Forest
-#		
-#		.EXAMPLE
-#			PS C:\> Get-GPSiteLink -SiteName "Default-First-Site-Name"
-#		
-#		.NOTES
-#			THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE ENTIRE RISK OF
-#			THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH THE USER.
-#	#>
-#		
-#		[CmdletBinding()]
-#		param
-#		(
-#			[Parameter(Mandatory = $true,
-#					 Position = 0)]
-#			[ValidateNotNullOrEmpty()]
-#			[String]$SiteName,
-#			[Parameter(Position = 1)]
-#			[String]$Domain,
-#			[Parameter(Position = 2)]
-#			[String]$Forest
-#		)
-#	
-#		Begin
-#		{
-#			Write-Verbose "Starting function to get gpos linked to an AD site."
-#			#define the permission constants hash table
-#			$GPPerms = @{
-#				"permGPOApply"			      = 65536;
-#				"permGPORead"			      = 65792;
-#				"permGPOEdit"			      = 65793;
-#				"permGPOEditSecurityAndDelete" = 65794;
-#				"permGPOCustom"			 = 65795;
-#				"permWMIFilterEdit"		      = 131072;
-#				"permWMIFilterFullControl"     = 131073;
-#				"permWMIFilterCustom"	      = 131074;
-#				"permSOMLink"			      = 1835008;
-#				"permSOMLogging"		      = 1573120;
-#				"permSOMPlanning"		      = 1573376;
-#				"permSOMGPOCreate"		      = 1049600;
-#				"permSOMWMICreate"		      = 1049344;
-#				"permSOMWMIFullControl"	      = 1049345;
-#				"permStarterGPORead"		 = 197888;
-#				"permStarterGPOEdit"		 = 197889;
-#				"permStarterGPOFullControl"    = 197890;
-#				"permStarterGPOCustom"	      = 197891;
-#			}
-#			
-#			#define the GPMC COM Objects
-#			$gpm = New-Object -ComObject "GPMGMT.GPM"
-#			$gpmConstants = $gpm.GetConstants()
-#			$gpmDomain = $gpm.GetDomain($domain, "", $gpmConstants.UseAnyDC)
-#		} #Begin
-#		Process
-#		{
-#			ForEach ($item in $siteName)
-#			{
-#				#connect to site container
-#				$SiteContainer = $gpm.GetSitesContainer($forest, $domain, $null, $gpmConstants.UseAnyDC)
-#				Write-Verbose "Connected to site container on $($SiteContainer.domainController)"
-#				#get sites
-#				Write-Verbose "Getting $item"
-#				$site = $SiteContainer.GetSite($item)
-#				Write-Verbose ("Found {0} sites" -f ($sites | Measure-Object).count)
-#				if ($site)
-#				{
-#					Write-Verbose "Getting site GPO links"
-#					$links = $Site.GetGPOLinks()
-#					if ($links)
-#					{
-#						#add the GPO name
-#						Write-Verbose ("Found {0} GPO links" -f ($links | Measure-Object).count)
-#						$links | Select-Object @{ Name = "Name"; Expression = { ($gpmDomain.GetGPO($_.GPOID)).DisplayName } },
-#									 @{ Name = "Description"; Expression = { ($gpmDomain.GetGPO($_.GPOID)).Description } }, GPOID, Enabled, Enforced, GPODomain, SOMLinkOrder, @{ Name = "SOM"; Expression = { $_.SOM.Path } }
-#					} #if $links
-#				} #if $site
-#			} #foreach site  
-#			
-#		} #process
-#		End
-#		{
-#			Write-Verbose "Finished"
-#		} #end
-#	} #End function Get-GPSiteLink
+	$dtmFormatString = "yyyy-MM-dd HH:mm:ss"
+	$dtmFileFormatString = "yyyy-MM-dd_HH-mm-ss"
 	
-	$SiteName = [String]$_.Name
-	$SiteLocation = [String]$_.Location
-	$SCSubnets = [String]($_.Subnets -join "`n")
-	$SiteLinks = [String]($_.SiteLinks -join "`n")
-	$AdjacentSites = [String]($_.AdjacentSites -join "`n")
-	$SiteDomains = [String]($_.Domains -join "`n")
-	$SiteServers = [String]($_.Servers -join "`n")
-	$BridgeHeads = [String]($_.BridgeHeadServers -join "`n")
+	#Create data table and add columns
+	$dtSiteHeaders = ConvertFrom-Csv -InputObject $dtSiteHeadersCsv
+	$sitesTblName = "$($forestName)_AD_Sites_Info"
+	$dtSites = Add-DataTable -TableName $sitesTblName -ColumnArray $dtSiteHeaders
 	
-	$adSite += Get-ADObject -Filter '(objectClass -eq "site") -and (Name -eq $_.Name)' -SearchBase "CN=Sites,$($using:rootCNC)" -SearchScope OneLevel -Properties name, distinguishedName, gPLink, gPOptions -ErrorAction SilentlyContinue
-	$gpoNames = @()
-	$siteGPOS = @()
-	$siteGPODisplayNames = @()
+	#Region SiteConfig
+	#Begin collecting AD Site Configuration info.
+	$Sites = [System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest().Sites | Sort-Object -Property Name
 	
-	if ($null -ne $adSite.gpLink)
-	{
-#		foreach ($siteDomain in $_.Domains)
-#		{
-#			$siteGPOS += Get-GPSiteLink -SiteName $_.Name -Domain $siteDomain -Forest $using:forestName
-#		}
-#		
-#		foreach ($siteGPO in $siteGPOS)
-#		{
-#			$id = ($siteGPO).GPOID
-#			$gpoDom = ($siteGPO).GPODomain
-#			$gpoInfo = Get-GPO -Guid $id -Domain $gpoDom -Server $gpoDom -ErrorAction SilentlyContinue
-#			$gpoName = $gpoInfo.DisplayName.ToString()
-#			
-#			$gpoNames += $gpoName
-#			
-#			$siteGPO = $id = $gpoDom = $gpoInfo = $gpoName = $null
-#		}
+	$Sites | ForEach-Object -Parallel {
 		
-		try
+		function Get-GPSiteLink
 		{
-			foreach ($SiteDomain in $_.Domains)
+	<#
+		.SYNOPSIS
+			function to get GPOs linked to an AD site
+		
+		.DESCRIPTION
+			This function will return all group policy objects linked to an AD site.
+		
+		.PARAMETER SiteName
+			Active Directory site name
+		
+		.PARAMETER Domain
+			Active Directory Domain
+		
+		.PARAMETER Forest
+			Active Directory Forest
+		
+		.EXAMPLE
+			PS C:\> Get-GPSiteLink -SiteName "Default-First-Site-Name"
+		
+		.NOTES
+			THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE ENTIRE RISK OF
+			THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH THE USER.
+	#>
+			
+			[CmdletBinding()]
+			param
+			(
+			[Parameter(Mandatory = $true,
+					 Position = 0)]
+			[ValidateNotNullOrEmpty()]
+			[String]$SiteName,
+			[Parameter(Position = 1)]
+			[String]$Domain,
+			[Parameter(Position = 2)]
+			[String]$Forest
+			)
+			
+			begin
 			{
-				$siteGPONames = $adSite | Select-Object -Property *, @{
-					Name	      = 'GPODisplayName'
-					Expression = {
-						$_.gpLink | ForEach-Object {
-							-join ([adsi]"LDAP://$_").displayName
-						}
-					}
+				Write-Verbose "Starting function to get gpos linked to an AD site."
+				#define the permission constants hash table
+				$GPPerms = @{
+					"permGPOApply"			      = 65536;
+					"permGPORead"			      = 65792;
+					"permGPOEdit"			      = 65793;
+					"permGPOEditSecurityAndDelete" = 65794;
+					"permGPOCustom"			 = 65795;
+					"permWMIFilterEdit"		      = 131072;
+					"permWMIFilterFullControl"     = 131073;
+					"permWMIFilterCustom"	      = 131074;
+					"permSOMLink"			      = 1835008;
+					"permSOMLogging"		      = 1573120;
+					"permSOMPlanning"		      = 1573376;
+					"permSOMGPOCreate"		      = 1049600;
+					"permSOMWMICreate"		      = 1049344;
+					"permSOMWMIFullControl"	      = 1049345;
+					"permStarterGPORead"		 = 197888;
+					"permStarterGPOEdit"		 = 197889;
+					"permStarterGPOFullControl"    = 197890;
+					"permStarterGPOCustom"	      = 197891;
 				}
 				
-				if ($? -eq $true)
+				#define the GPMC COM Objects
+				$gpm = New-Object -ComObject "GPMGMT.GPM"
+				$gpmConstants = $gpm.GetConstants()
+				$gpmDomain = $gpm.GetDomain($domain, "", $gpmConstants.UseAnyDC)
+			} #Begin
+			process
+			{
+				foreach ($item in $siteName)
 				{
-					$siteGPODisplayNames += $siteGPONames.GPODisplayName -join "`n"
-				}
-				else
-				{
-					$siteGPODisplayNames += (Get-GPInheritance -Target $adSite -Domain $siteDomain | `
-						Select-Object -Property GpoLinks).GpoLinks | Select-Object -ExpandProperty DisplayName
-				}
+					#connect to site container
+					$SiteContainer = $gpm.GetSitesContainer($forest, $domain, $null, $gpmConstants.UseAnyDC)
+					Write-Verbose "Connected to site container on $($SiteContainer.domainController)"
+					#get sites
+					Write-Verbose "Getting $item"
+					$site = $SiteContainer.GetSite($item)
+					Write-Verbose ("Found {0} sites" -f ($sites | Measure-Object).count)
+					if ($site)
+					{
+						Write-Verbose "Getting site GPO links"
+						$links = $Site.GetGPOLinks()
+						if ($links)
+						{
+							#add the GPO name
+							Write-Verbose ("Found {0} GPO links" -f ($links | Measure-Object).count)
+							$links | Select-Object @{ Name = "Name"; Expression = { ($gpmDomain.GetGPO($_.GPOID)).DisplayName } },
+											   @{ Name = "Description"; Expression = { ($gpmDomain.GetGPO($_.GPOID)).Description } }, GPOID, Enabled, Enforced, GPODomain, SOMLinkOrder, @{ Name = "SOM"; Expression = { $_.SOM.Path } }
+						} #if $links
+					} #if $site
+				} #foreach site  
+				
+			} #process
+			end
+			{
+				Write-Verbose "Finished"
+			} #end
+		} #End function Get-GPSiteLink
+		
+		$SiteName = [String]$_.Name
+		$SiteLocation = [String]$_.Location
+		$SCSubnets = [String]($_.Subnets -join "`n")
+		$SiteLinks = [String]($_.SiteLinks -join "`n")
+		$AdjacentSites = [String]($_.AdjacentSites -join "`n")
+		$SiteDomains = [String]($_.Domains -join "`n")
+		$SiteServers = [String]($_.Servers -join "`n")
+		$BridgeHeads = [String]($_.BridgeHeadServers -join "`n")
+		
+		$filter = "(&(objectClass=site)(Name={0}))" -f $SiteName
+		$sb = "CN=Sites,{0}" -f $using:rootCNC
+		$adSiteProps = @("distinguishedName", "gPLink", "gPOptions", "Name")
+		$adSite = Get-ADObject -LdapFilter $filter -SearchBase $sb -SearchScope OneLevel -Properties $adSiteProps -ErrorAction Continue | Select-Object -Property $adSiteProps
+		$gpoNames = @()
+		$siteGPOS = @()
+		
+		if ($null -ne $adSite.gpLink)
+		{
+			foreach ($siteDomain in $_.Domains)
+			{
+				$siteGPOS += Get-GPSiteLink -SiteName $_.Name -Domain $siteDomain -Forest $using:forestName
 			}
 			
+			foreach ($siteGPO in $siteGPOS)
+			{
+				$id = ($siteGPO).GPOID
+				$gpoDom = ($siteGPO).GPODomain
+				$gpoInfo = Get-GPO -Guid $id -Domain $gpoDom -Server $gpoDom -ErrorAction SilentlyContinue
+				$gpoName = $gpoInfo.DisplayName.ToString()
+				
+				$gpoNames += $gpoName
+				
+				$null = $siteGPO = $id = $gpoDom = $gpoInfo = $gpoName
+			}
 			
 		}
-		catch
+		else
 		{
-			$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
-			Write-Error $errorMessage -ErrorAction Continue
+			$gpoNames = "None."
 		}
 		
-	}
-	else
-	{
-		$gpoNames = "None."
-	}
+		$gpoDisplayNames = $gpoNames | Select-Object -Unique
+		
+		$table = $using:dtSites
+		$siteRow = $table.NewRow()
+		$siteRow."Site Name" = $SiteName | Out-String
+		$siteRow."Site Location" = $SiteLocation | Out-String
+		$siteRow."Site Links" = $SiteLinks | Out-String
+		$siteRow."Adjacent Sites" = $AdjacentSites | Out-String
+		$siteRow."Subnets in Site" = $SCSubnets | Out-String
+		$siteRow."Domains in Site" = $SiteDomains | Out-String
+		$siteRow."Servers in Site" = $SiteServers | Out-String
+		$siteRow."Bridgehead Servers" = $BridgeHeads | Out-String
+		$siteRow."GPOs linked to Site" = $gpoDisplayNames -join "`n" | Out-String
+		$siteRow."Notes" = $null | Out-String
+		
+		$table.Rows.Add($siteRow)
+		
+		$null = $SiteLocation = $siteGPOS = $SiteLinks = $SiteName = $SCSubnets = $AdjacentSites = $SiteDomains = $SiteServers = $BridgeHeads
+		$null = $adSite = $gpoNames = $gpoDisplayNames
+		[System.GC]::GetTotalMemory('ForceFullCollection') | Out-Null
+	} -ThrottleLimit $throttleLimit
 	
-	$table = $using:dtSites
-	$siteRow = $table.NewRow()
-	$siteRow."Site Name" = $SiteName | Out-String
-	$siteRow."Site Location" = $SiteLocation | Out-String
-	$siteRow."Site Links" = $SiteLinks | Out-String
-	$siteRow."Adjacent Sites" = $AdjacentSites | Out-String
-	$siteRow."Subnets in Site" = $SCSubnets | Out-String
-	$siteRow."Domains in Site" = $SiteDomains | Out-String
-	$siteRow."Servers in Site" = $SiteServers | Out-String
-	$siteRow."Bridgehead Servers" = $BridgeHeads | Out-String
-	$siteRow."GPOs linked to Site" = $gpoNames -join "`n" | Out-String
-	$siteRow."Notes" = $null | Out-String
+	#EndRegion
 	
-	$table.Rows.Add($siteRow)
-	
-	$SiteLocation = $siteGPOS = $SiteLinks = $SiteName = $SCSubnets = $AdjacentSites = $SiteDomains = $SiteServers = $BridgeHeads = $null
-	$adSite = $gpoNames = $null
-	[System.GC]::GetTotalMemory('ForceFullCollection') | Out-Null
-} -ThrottleLimit $throttleLimit
-
-#EndRegion
-
-#Save output
-$driveRoot = (Get-Location).Drive.Root
-$rptFolder = "{0}{1}" -f $driveRoot, "Reports"
-
-Test-PathExists -Path $rptFolder -PathType Folder
-
-$colToExport = $dtSiteHeaders.ColumnName
-
-Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
-$outputCSV = "{0}\{1}_{2}_Active_Directory_Site_Info.csv" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $forestName
-$dtSites | Select-Object $colToExport | Export-Csv -Path $outputCSV -NoTypeInformation
-
-
-Write-Verbose -Message ("[{0} UTC] Exporting data tables to Excel spreadsheet tabs." -f $(Get-UTCTime).ToString($dtmFormatString))
-$wsName = "AD Site Configuration"
-$outputFile = "{0}\{1}_{2}_Active_Directory_Site_Info.xlsx" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $forestName
-$ExcelParams = @{
-	Path	        = $outputFile
-	StartRow     = 2
-	StartColumn  = 1
-	AutoSize     = $true
-	AutoFilter   = $true
-	FreezeTopRow = $true
 }
-
-
-$Excel = $dtSites | Select-Object $colToExport | Sort-Object -Property "Site Name" | Export-Excel @ExcelParams -WorkSheetname $wsName -PassThru
-$Sheet = $Excel.Workbook.Worksheets["AD Site Configuration"]
-$totalRows = $Sheet.Dimension.Rows
-Set-Format -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Bottom -HorizontalAlignment Left
-Export-Excel -ExcelPackage $Excel -WorksheetName $wsName -Title "$($forestName) Active Directory Site Configuration" -TitleSize 16 -TitleBackgroundColor LightBlue -TitleFillPattern Solid
+catch
+{
+	$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+	Write-Error $errorMessage -ErrorAction Continue
+}
+finally
+{
+	#Save output
+	$driveRoot = (Get-Location).Drive.Root
+	$rptFolder = "{0}{1}" -f $driveRoot, "Reports"
+	
+	Test-PathExists -Path $rptFolder -PathType Folder
+	
+	$colToExport = $dtSiteHeaders.ColumnName
+	
+	if ($dtSites.Rows.Count -gt 1)
+	{
+		Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
+		$outputCSV = "{0}\{1}_{2}_Active_Directory_Site_Info.csv" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $forestName
+		$dtSites | Select-Object $colToExport | Export-Csv -Path $outputCSV -NoTypeInformation
+		
+		
+		Write-Verbose -Message ("[{0} UTC] Exporting data tables to Excel spreadsheet tabs." -f $(Get-UTCTime).ToString($dtmFormatString))
+		$wsName = "AD Site Configuration"
+		$outputFile = "{0}\{1}_{2}_Active_Directory_Site_Info.xlsx" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $forestName
+		$ExcelParams = @{
+			Path	        = $outputFile
+			StartRow     = 2
+			StartColumn  = 1
+			AutoSize     = $true
+			AutoFilter   = $true
+			FreezeTopRow = $true
+		}
+		
+		
+		$Excel = $dtSites | Select-Object $colToExport | Sort-Object -Property "Site Name" | Export-Excel @ExcelParams -WorkSheetname $wsName -PassThru
+		$Sheet = $Excel.Workbook.Worksheets["AD Site Configuration"]
+		$totalRows = $Sheet.Dimension.Rows
+		Set-Format -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Bottom -HorizontalAlignment Left
+		Export-Excel -ExcelPackage $Excel -WorksheetName $wsName -Title "$($forestName) Active Directory Site Configuration" -TitleSize 16 -TitleBackgroundColor LightBlue -TitleFillPattern Solid
+	}
+	
+}
 
 #EndRegion

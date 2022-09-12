@@ -1,5 +1,4 @@
-﻿#Requires -Module ActiveDirectory, ImportExcel
-#Requires -Version 7
+﻿#Requires -Version 7
 #Requires -RunAsAdministrator
 <#
 
@@ -106,7 +105,7 @@ $trustHeadersCsv =
 "@
 
 [int32]$throttleLimit = 20
-$dtmFormatString = "yyyy-MM-dd HH:mm:ss"
+
 #EndRegion
 
 
@@ -329,170 +328,183 @@ Test-PathExists -Path "C:\temp" -PathFype Folder
 
 
 #region Scripts
-$Error.Clear()
-
-$dtmFormatString = "yyyy-MM-dd HH:mm:ss"
-$dtmFileFormatString = "yyyy-MM-dd_HH-mm-ss"
-
-#Create data table and add columns
-$trustTblName = "$($forestName)_Domain_Trust_Info"
-$trustHeaders = ConvertFrom-Csv -InputObject $trustHeadersCsv
-$trustTable = Add-DataTable -TableName $trustTblName -ColumnArray $trustHeaders
-$Domains | ForEach-Object -Parallel {
-
+try
+{
+	$Error.Clear()
 	
-	# List of properties of a trust relationship
-	$trusts = @()
-	$trustStatus = @()
+	$dtmFormatString = "yyyy-MM-dd HH:mm:ss"
+	$dtmFileFormatString = "yyyy-MM-dd_HH-mm-ss"
 	
-	try
-	{
-		$domainInfo = Get-ADDomain -Identity $_ -Server (Get-ADDomain -Identity $_).pdcEmulator | Select-Object -Property $using:DomainProperties
-	}
-	catch
-	{
-		$domainInfo = Get-ADDomain -Identity $_ -Server $_ | Select-Object -Property $using:DomainProperties
-	}
-	
-	$pdcFSMO = ($domainInfo).PDCEmulator
-	$domDNS = ($domainInfo).DNSRoot
-	
-	
-	try
-	{
-		$trusts = Get-ADTrust -Filter * -Properties * -Server $pdcFSMO -ErrorAction Continue | Select-Object -Property *
-	}
-	catch
-	{
-		$trusts = Get-ADTrust -Filter * -Properties * -Server $domDNS -ErrorAction Continue | Select-Object -Property *
-	}
-	
-	try
-	{
-		$trustStatus = Get-CimInstance -ComputerName $pdcFSMO -Namespace $using:ns -Query "Select * from Microsoft_DomainTrustStatus" -ErrorAction Continue -ErrorVariable CIMError
-	}
-	catch
-	{
-		$trustStatus = Get-CimInstance -ComputerName $domDNS -Namespace $using:ns -Query "Select * from Microsoft_DomainTrustStatus" -ErrorAction Continue -ErrorVariable CIMError
-	}
-	
-	$trusts | ForEach-Object {
-		$t = $_
-		$trustSource = Get-FQDNfromDN ($t).Source
-		$trustTarget = ($t).Target
-		$trustType = ($t).TrustType
-		$forestTrust = ($t).ForestTransitive
-		$intraForest = ($t).IntraForest
-		$intTrustDirection = ($t).TrustDirection
-		switch ($intTrustDirection)
+	#Create data table and add columns
+	$trustTblName = "$($forestName)_Domain_Trust_Info"
+	$trustHeaders = ConvertFrom-Csv -InputObject $trustHeadersCsv
+	$trustTable = Add-DataTable -TableName $trustTblName -ColumnArray $trustHeaders
+	$Domains | ForEach-Object -Parallel {
+		
+		
+		# List of properties of a trust relationship
+		$trusts = @()
+		$trustStatus = @()
+		
+		try
 		{
-			0 { $trustDirection = "Disabled (The relationship exists but has been disabled)" }
-			1 { $trustDirection = "Inbound (TrustING domain)" }
-			2 { $trustDirection = "Outbound (TrustED domain)" }
-			3 { $trustDirection = "Bidirectional (Two-Way Trust)" }
-			Default{ $trustDirection = $intTrustDirection }
+			$domainInfo = Get-ADDomain -Identity $_ -Server (Get-ADDomain -Identity $_).pdcEmulator | Select-Object -Property $using:DomainProperties
+		}
+		catch
+		{
+			$domainInfo = Get-ADDomain -Identity $_ -Server $_ | Select-Object -Property $using:DomainProperties
 		}
 		
-		$TrustAttributesNumber = ($t).TrustAttributes
-		switch ($TrustAttributesNumber)
+		$pdcFSMO = ($domainInfo).PDCEmulator
+		$domDNS = ($domainInfo).DNSRoot
+		
+		
+		try
 		{
-			
-			0 { $trustAttributes = "Inbound Trust" }
-			1 { $trustAttributes = "Non-Transitive" }
-			2 { $trustAttributes = "Uplevel clients only (Windows 2000 or newer" }
-			4 { $trustAttributes = "Quarantined Domain (External)" }
-			8 { $trustAttributes = "Forest Trust" }
-			16 { $trustAttributes = "Cross-Organizational Trust (Selective Authentication)" }
-			20 { $trustAttributes = "Intra-Forest Trust (trust within the forest)" }
-			32 { $trustAttributes = "Intra-Forest Trust (trust within the forest)" }
-			64 { $trustAttributes = "Inter-Forest Trust (trust with another forest)" }
-			68 { $trustAttributes = "Quarantined Domain (External)" }
-			4194304 { $trustAttributes = "Obsolete value combination"}
-			Default { $trustAttributes = $TrustAttributesNumber }
-			
+			$trusts = Get-ADTrust -Filter * -Properties * -Server $pdcFSMO -ErrorAction Continue | Select-Object -Property *
+		}
+		catch
+		{
+			$trusts = Get-ADTrust -Filter * -Properties * -Server $domDNS -ErrorAction Continue | Select-Object -Property *
 		}
 		
-		if (-not ($trustAttributes)) { $trustAttributes = $TrustAttributesNumber }
-		
-		# Check if SID History is Enabled
-		if ($TrustAttributesNumber -band 64) { $sidHistory = "Enabled" }
-		else { $sidHistory = "Disabled" }
-		
-		# Check if SID Filtering is Enabled
-		if ((($t.SIDFilteringQuarantined) -eq $false) -or (($t.SIDFilteringForestAware) -eq $false)) { $sidFiltering = "None" }
-		else { $sidFiltering = "Quarantine Enabled" }
-		
-		if (($trustStatus).Count -ge 1)
+		try
 		{
-			$trustStatus | ForEach-Object {
-				$trustPartnerDC = $_.TrustedDCName
-				$partnerDC = $trustPartnerDC.TrimStart("\\")
-				if ($_.TrustIsOk -eq $true) { $trustOK = "Yes" }
-				else { $trustOK = "No - remediate" }
-				$Status = ($_).TrustStatusString
+			$trustStatus = Get-CimInstance -ComputerName $pdcFSMO -Namespace $using:ns -Query "Select * from Microsoft_DomainTrustStatus" -ErrorAction Continue -ErrorVariable CIMError
+		}
+		catch
+		{
+			$trustStatus = Get-CimInstance -ComputerName $domDNS -Namespace $using:ns -Query "Select * from Microsoft_DomainTrustStatus" -ErrorAction Continue -ErrorVariable CIMError
+		}
+		
+		$trusts | ForEach-Object {
+			$t = $_
+			$trustSource = Get-FQDNfromDN ($t).Source
+			$trustTarget = ($t).Target
+			$trustType = ($t).TrustType
+			$forestTrust = ($t).ForestTransitive
+			$intraForest = ($t).IntraForest
+			$intTrustDirection = ($t).TrustDirection
+			switch ($intTrustDirection)
+			{
+				0 { $trustDirection = "Disabled (The relationship exists but has been disabled)" }
+				1 { $trustDirection = "Inbound (TrustING domain)" }
+				2 { $trustDirection = "Outbound (TrustED domain)" }
+				3 { $trustDirection = "Bidirectional (Two-Way Trust)" }
+				Default{ $trustDirection = $intTrustDirection }
 			}
+			
+			$TrustAttributesNumber = ($t).TrustAttributes
+			switch ($TrustAttributesNumber)
+			{
+				
+				0 { $trustAttributes = "Inbound Trust" }
+				1 { $trustAttributes = "Non-Transitive" }
+				2 { $trustAttributes = "Uplevel clients only (Windows 2000 or newer" }
+				4 { $trustAttributes = "Quarantined Domain (External)" }
+				8 { $trustAttributes = "Forest Trust" }
+				16 { $trustAttributes = "Cross-Organizational Trust (Selective Authentication)" }
+				20 { $trustAttributes = "Intra-Forest Trust (trust within the forest)" }
+				32 { $trustAttributes = "Intra-Forest Trust (trust within the forest)" }
+				64 { $trustAttributes = "Inter-Forest Trust (trust with another forest)" }
+				68 { $trustAttributes = "Quarantined Domain (External)" }
+				4194304 { $trustAttributes = "Obsolete value combination" }
+				Default { $trustAttributes = $TrustAttributesNumber }
+				
+			}
+			
+			if (-not ($trustAttributes)) { $trustAttributes = $TrustAttributesNumber }
+			
+			# Check if SID History is Enabled
+			if ($TrustAttributesNumber -band 64) { $sidHistory = "Enabled" }
+			else { $sidHistory = "Disabled" }
+			
+			# Check if SID Filtering is Enabled
+			if ((($t.SIDFilteringQuarantined) -eq $false) -or (($t.SIDFilteringForestAware) -eq $false)) { $sidFiltering = "None" }
+			else { $sidFiltering = "Quarantine Enabled" }
+			
+			if (($trustStatus).Count -ge 1)
+			{
+				$trustStatus | ForEach-Object {
+					$trustPartnerDC = $_.TrustedDCName
+					$partnerDC = $trustPartnerDC.TrimStart("\\")
+					if ($_.TrustIsOk -eq $true) { $trustOK = "Yes" }
+					else { $trustOK = "No - remediate" }
+					$Status = ($_).TrustStatusString
+				}
+			}
+			
+			$trustSelectiveAuth = ($t).SelectiveAuthentication
+			$whenCreated = ($t).Created -f "mm/dd/yyyy hh:mm:ss"
+			$whenTrustChanged = ($t).modifyTimeStamp -f "mm/dd/yyyy hh:mm:ss"
+			
+			$table = $using:trustTable
+			$trustRow = $table.NewRow()
+			$trustRow."Source Name" = $trustSource
+			$trustRow."Target Name" = $trustTarget
+			$trustRow."Forest Trust" = $forestTrust
+			$trustRow."IntraForest Trust" = $intraForest
+			$trustRow."Trust Direction" = $trustDirection
+			$trustRow."Trust Type" = $trustType
+			$trustRow."Trust Attributes" = $trustAttributes
+			$trustRow."SID History" = $sidHistory
+			$trustRow."SID Filtering" = $sidFiltering
+			$trustRow."Selective Authentication" = $trustSelectiveAuth
+			$trustRow."CIMPartnerDCName" = $partnerDC
+			$trustRow."CIMTrustIsOK" = $trustOK
+			$trustRow."CIMTrustStatus" = $Status
+			$trustRow."AD Trust whenCreated" = $whenCreated
+			$trustRow."AD Trust whenChanged" = $whenTrustChanged
+			
+			
+			$table.Rows.Add($trustRow)
+			[System.GC]::GetTotalMemory('ForceFullCollection') | Out-Null
 		}
 		
-		$trustSelectiveAuth = ($t).SelectiveAuthentication
-		$whenCreated = ($t).Created -f "mm/dd/yyyy hh:mm:ss"
-		$whenTrustChanged = ($t).modifyTimeStamp -f "mm/dd/yyyy hh:mm:ss"
-		
-		$table = $using:trustTable
-		$trustRow = $table.NewRow()
-		$trustRow."Source Name" = $trustSource
-		$trustRow."Target Name" = $trustTarget
-		$trustRow."Forest Trust" = $forestTrust
-		$trustRow."IntraForest Trust" = $intraForest
-		$trustRow."Trust Direction" = $trustDirection
-		$trustRow."Trust Type" = $trustType
-		$trustRow."Trust Attributes" = $trustAttributes
-		$trustRow."SID History" = $sidHistory
-		$trustRow."SID Filtering" = $sidFiltering
-		$trustRow."Selective Authentication" = $trustSelectiveAuth
-		$trustRow."CIMPartnerDCName" = $partnerDC
-		$trustRow."CIMTrustIsOK" = $trustOK
-		$trustRow."CIMTrustStatus" = $Status
-		$trustRow."AD Trust whenCreated" = $whenCreated
-		$trustRow."AD Trust whenChanged" = $whenTrustChanged
-		
-		
-		$table.Rows.Add($trustRow)
-		[GC]::Collect()
-	}
-
-} -ThrottleLimit $throttleLimit
-
-
-#Save output
-$driveRoot = (Get-Location).Drive.Root
-$rptFolder = "{0}{1}" -f $driveRoot, "Reports"
-
-Test-PathExists -Path $rptFolder -PathType Folder
-
-$ttColToExport = $trustHeaders.ColumnName
-
-Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
-$outputCsv = "{0}\{1}-{2}-Forest_Trust_Info.csv" -f $rptFolder, $(Get-UTCTime).ToString("yyyy-MM-dd_HH-mm-ss"), $forestName
-$trustTable | Select-Object $ttColToExport | Export-Csv -Path $outputCsv -NoTypeInformation
-
-
-Write-Verbose ("[{0} UTC] Exporting results data in Excel format, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
-$outputFile = "{0}\{1}-{2}-Forest_Trust_Info.xlsx" -f $rptFolder, $(Get-UTCTime).ToString("yyyy-MM-dd_HH-mm-ss"), $forestName
-$wsName = "AD Trust Configuration"
-$ExcelParams = @{
-	Path	        = $outputFile
-	StartRow     = 2
-	StartColumn  = 1
-	AutoSize     = $true
-	AutoFilter   = $true
-	BoldTopRow   = $true
-	FreezeTopRow = $true
+	} -ThrottleLimit $throttleLimit
 }
-
-$xl = $trustTable | Select-Object $ttColToExport | Export-Excel @ExcelParams -WorkSheetname $wsName -Passthru
-$Sheet = $xl.Workbook.Worksheets["AD Trust Configuration"]
-$totalRows = $Sheet.Dimension.Rows
-Set-ExcelRange -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Bottom -HorizontalAlignment Left
-Export-Excel -ExcelPackage $xl -WorksheetName $wsName -Title "$($forestName) Active Directory Trust Configuration" -TitleFillPattern Solid -TitleSize 18 -TitleBold -TitleBackgroundColor LightBlue
+catch
+{
+	$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+	Write-Error $errorMessage -ErrorAction Continue
+}
+finally
+{
+	#Save output
+	$driveRoot = (Get-Location).Drive.Root
+	$rptFolder = "{0}{1}" -f $driveRoot, "Reports"
+	
+	Test-PathExists -Path $rptFolder -PathType Folder
+	
+	$ttColToExport = $trustHeaders.ColumnName
+	
+	if ($trustTable.Rows.Count -gt 1)
+	{
+		Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
+		$outputCsv = "{0}\{1}-{2}_Forest_Trust_Info.csv" -f $rptFolder, $(Get-UTCTime).ToString("yyyy-MM-dd_HH-mm-ss"), $forestName
+		$trustTable | Select-Object $ttColToExport | Export-Csv -Path $outputCsv -NoTypeInformation
+		
+		
+		Write-Verbose ("[{0} UTC] Exporting results data in Excel format, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
+		$outputFile = "{0}\{1}-{2}_Forest_Trust_Info.xlsx" -f $rptFolder, $(Get-UTCTime).ToString("yyyy-MM-dd_HH-mm-ss"), $forestName
+		$wsName = "AD Trust Configuration"
+		$ExcelParams = @{
+			Path	        = $outputFile
+			StartRow     = 2
+			StartColumn  = 1
+			AutoSize     = $true
+			AutoFilter   = $true
+			BoldTopRow   = $true
+			FreezeTopRow = $true
+		}
+		
+		$xl = $trustTable | Select-Object $ttColToExport | Export-Excel @ExcelParams -WorkSheetname $wsName -Passthru
+		$Sheet = $xl.Workbook.Worksheets["AD Trust Configuration"]
+		$totalRows = $Sheet.Dimension.Rows
+		Set-ExcelRange -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Bottom -HorizontalAlignment Left
+		Export-Excel -ExcelPackage $xl -WorksheetName $wsName -Title "$($forestName) Active Directory Trust Configuration" -TitleFillPattern Solid -TitleSize 18 -TitleBold -TitleBackgroundColor LightBlue
+	}
+	
+}
 
 #EndRegion

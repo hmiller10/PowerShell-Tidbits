@@ -1,5 +1,4 @@
-﻿#Requires -Module ActiveDirectory, ImportExcel
-#Requires -Version 7
+﻿#Requires -Version 7
 #Requires -RunAsAdministrator
 <#
 	.NOTES
@@ -32,6 +31,14 @@
 	.LINK
 	https://github.com/dfinke/ImportExcel
 #>
+###########################################################################
+#
+#
+# AUTHOR:  Heather Miller
+#
+# VERSION HISTORY: 2.0
+# 
+###########################################################################
 
 [CmdletBinding()]
 param
@@ -48,7 +55,7 @@ param
 #Check if required module is loaded, if not load import it
 Try 
 {
-	Import-Module ActiveDirectory -ErrorAction Stop
+	Import-Module ActiveDirectory -SkipEditionCheck -ErrorAction Stop
 }
 Catch
 {
@@ -99,16 +106,82 @@ if ($PSBoundParameters.ContainsKey('Credential') -and ($PSBoundParameters["Crede
 }
 
 $Domain = Get-ADDomain @domainParams | Select-Object -Property distinguishedName, DnsRoot, Name, pdcEmulator
-$dnsRoot = $Domain.dnsRoot
+$pdcE = $Domain.pdcEmulator
+$dnsRoot = $Domain.DnsRoot
 
 [int32]$throttleLimit = 100
-$rptFolder = 'E:\Reports'
 
-[PSObject[]]$global:ouObject = @()
-$colResults = @()
+$ouHeadersCsv =
+@"
+ColumnName,DataType
+"Domain",string
+"OU Name",string
+"Parent OU",string
+"Child OUs",string
+"Managed By",string
+"Delegated Objects",string
+"Linked GPOs",string
+"@
+
 #endregion
 
 #Region Functions
+
+function Add-DataTable
+{
+<#
+	.SYNOPSIS
+		Creates PS data table with assigned name and column data
+	
+	.DESCRIPTION
+		This function creates a [System.Data.DataTable] to store script output for reporting.
+	
+	.PARAMETER TableName
+		A brief description to reference the data table by
+	
+	.PARAMETER ColumnArray
+		List of column headers including ColumnName and DataType
+	
+	.EXAMPLE
+		PS C:\> Add-DataTable -TableName <TableName> -ColumnArray <DataColumnDefinitions>
+	
+	.NOTES
+		THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE ENTIRE RISK OF 
+		THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH THE USER.
+#>
+	
+	[CmdletBinding()]
+	[OutputType([System.Data.DataTable])]
+	param
+	(
+		[Parameter(Mandatory = $true,
+				 Position = 0)]
+		[ValidateNotNullOrEmpty()]
+		[String]$TableName,  #'TableName'
+		[Parameter(Mandatory = $true,
+				 Position = 1)]
+		[ValidateNotNullOrEmpty()]
+		$ColumnArray  #'DataColumnDefinitions'
+	)
+	
+	
+	Begin
+	{
+		$dt = $null
+		$dt = New-Object System.Data.DataTable("$TableName")
+	}
+	Process
+	{
+		ForEach ($col in $ColumnArray)
+		{
+			[void]$dt.Columns.Add([System.Data.DataColumn]$col.ColumnName.ToString(), $col.DataType)
+		}
+	}
+	End
+	{
+		Write-Output @(,$dt)
+	}
+} #end function Add-DataTable
 
 function Test-PathExists
 {
@@ -135,76 +208,88 @@ Test-PathExists -Path "C:\temp\SomeFile.txt" -PathType File
 Test-PathExists -Path "C:\temp" -PathFype Folder
 
 #>
-	[CmdletBinding()]
+	
+[CmdletBinding(SupportsShouldProcess = $true)]
 	param
 	(
+		[Parameter( Mandatory = $true,
+				 Position = 0,
+				 HelpMessage = 'Type the file system where the folder or file to check should be verified.')]
+		[string]$Path,
 		[Parameter(Mandatory = $true,
-				 Position = 0)]
-		[String]$Path,
-		[Parameter(Mandatory = $true,
-				 Position = 1)]
-		[Object]$PathType
+				 Position = 1,
+				 HelpMessage = 'Specify path content as file or folder')]
+		[string]$PathType
 	)
 	
-	Begin { $VerbosePreference = 'Continue' }
-	
-	Process
+	begin
 	{
-		Switch ($PathType)
+		$VerbosePreference = 'Continue';
+	}
+	
+	process
+	{
+		switch ($PathType)
 		{
 			File
 			{
-				If ((Test-Path -Path $Path -PathType Leaf) -eq $true)
+				if ((Test-Path -Path $Path -PathType Leaf) -eq $true)
 				{
-					Write-Information -MessageData "File: $Path already exists..."
+					Write-Output ("File: {0} already exists..." -f $Path)
 				}
-				Else
+				else
 				{
-					New-Item -Path $Path -ItemType File -Force
-					Write-Verbose -Message "File: $Path not present, creating new file..."
+					Write-Verbose -Message ("File: {0} not present, creating new file..." -f $Path)
+					if ($PSCmdlet.ShouldProcess($Path, "Create file"))
+					{
+						[System.IO.File]::Create($Path)
+					}
 				}
 			}
 			Folder
 			{
-				If ((Test-Path -Path $Path -PathType Container) -eq $true)
+				if ((Test-Path -Path $Path -PathType Container) -eq $true)
 				{
-					Write-Information -MessageData "Folder: $Path already exists..."
+					Write-Output ("Folder: {0} already exists..." -f $Path)
 				}
-				Else
+				else
 				{
-					New-Item -Path $Path -ItemType Directory -Force
-					Write-Verbose -Message "Folder: $Path not present, creating new folder"
+					Write-Verbose -Message ("Folder: {0} not present, creating new folder..." -f $Path)
+					if ($PSCmdlet.ShouldProcess($Path, "Create folder"))
+					{
+						[System.IO.Directory]::CreateDirectory($Path)
+					}
+					
+					
 				}
 			}
 		}
 	}
 	
-	End { }
+	end { }
 	
 }#end function Test-PathExists
 
-function Get-ReportDate
+function Get-UTCTime
 {
 <#
 	.SYNOPSIS
-		function to get date in format yyyy-MM-dd
+		Get UTC Time
 	
 	.DESCRIPTION
-		function to get date using the Get-Date cmdlet in the format yyyy-MM-dd
+		This functions returns the Universal Coordinated Date and Time. 
 	
 	.EXAMPLE
-		PS C:\> $rptDate = Get-ReportDate
+		PS C:\> Get-UTCTime
 	
 	.NOTES
 		THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE ENTIRE RISK OF 
 		THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH THE USER.
 #>
 	
-	#Begin function get report execution date
-	Get-Date -Format "yyyy-MM-dd"
-} #End function Get-ReportDate
-
-
+	#Begin function to get current date and time in UTC format
+	[System.DateTime]::UtcNow
+} #End function Get-UTCTime
 
 #EndRegion
 
@@ -212,22 +297,30 @@ function Get-ReportDate
 
 
 #Region Script
-$Error.Clear()
-
-
-#List properties to be collected into array for writing to OU tab
-$OUs = @()
-$ouProps = @("distinguishedName", "gpLink", "LinkedGroupPolicyObjects", "ManagedBy", "Name", "objectCategory", "objectClass", "whenCreated", "whenChanged")
-	
-Write-Verbose -Message ("Gathering collection of AD Organizational Units for {0}" -f $Domain.Name)
 try
 {
-	$OUs = Get-ADOrganizationalUnit -Filter * -Properties $ouProps -SearchBase $Domain.distinguishedName -SearchScope Subtree -ResultSetSize $null -Server $Domain.pdcEmulator | Select-Object -Property $ouProps
-	if (!($?))
+	$Error.Clear()
+	
+	$dtmFormatString = "yyyy-MM-dd HH:mm:ss"
+	$dtmFileFormatString = "yyyy-MM-dd_HH-mm-ss"
+	
+	#List properties to be collected into array for writing to OU tab
+	$OUs = @()
+	$ouProps = @("distinguishedName", "gpLink", "LinkedGroupPolicyObjects", "ManagedBy", "Name", "objectCategory", "objectClass", "whenCreated", "whenChanged")
+	
+	#Add data table to hold output results
+	$ouTblName = "$($Domain.DnsRoot)_OU_Info"
+	$ouHeaders = ConvertFrom-Csv -InputObject $ouHeadersCsv
+	$ouTable = Add-DataTable -TableName $ouTblName -ColumnArray $ouHeaders
+	
+	Write-Verbose -Message ("Gathering collection of AD Organizational Units for {0}" -f $Domain.Name)
+	
+	$OUs = Get-ADOrganizationalUnit -Filter * -Properties $ouProps -SearchBase $Domain.distinguishedName -SearchScope Subtree -ResultSetSize $null -Server ($Domain).pdcEmulator | Select-Object -Property $ouProps
+	if ($? -eq $false)
 	{
 		try
 		{
-			$OUs = Get-ADOrganizationalUnit -Filter * -Properties $ouProps -SearchBase $Domain.distinguishedName -SearchScope Subtree -ResultSetSize $null -Server $Domain.DnsRoot | Select-Object -Property $ouProps
+			$OUs = Get-ADOrganizationalUnit -Filter * -Properties $ouProps -SearchBase $Domain.distinguishedName -SearchScope Subtree -ResultSetSize $null -Server ($Domain).dnsRoot | Select-Object -Property $ouProps
 		}
 		catch
 		{
@@ -237,80 +330,8 @@ try
 		}
 	}
 	
-	$colResults = $OUs | ForEach-Object -Parallel {
-		
-		function Get-GPODisplayNames
-		{
-		<#
-			.SYNOPSIS
-				Return GPO display names of all GPOs
-			
-			.DESCRIPTION
-				This functions will return the displayName of a GPO using ADSI
-			
-			.PARAMETER GPOs
-				Collection of GPOs to get display names for
-			
-			.EXAMPLE
-				PS C:\> Get-GPODisplayNames -GPOs <GPOList>
-			
-			.NOTES
-				THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE ENTIRE RISK OF 
-				THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH THE USER.
-		#>
-			
-			[CmdletBinding()]
-			param
-			(
-				[Parameter(Mandatory = $true,
-						 ValueFromPipeline = $true,
-						 Position = 0)]
-				[ValidateNotNullOrEmpty()]
-				$GPOs
-			)
-			
-			begin
-			{
-				#Begin function to get DisplayName attribute of GPO object
-				$colGPOs = @()
-			}
-			process
-			{
-				$GPOs.foreach({
-						
-						try
-						{
-							#$currentGPO = [ADSI]"LDAP://$_" | Select-Object -Property DisplayName
-							$currentGPO = [ADSI]"LDAP://$_"
-							if ($null -ne $currentGPO.DisplayName)
-							{
-								$colGPOs += $currentGPO
-							}
-							
-							if ($colGPOs.Count -ge 1)
-							{
-								$objDisplayNames = $colGPOs.DisplayName
-							}
-							else
-							{
-								$objDisplayNames = "GPO display name for the current GPO is not available."
-							}
-						}
-						catch
-						{
-							$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
-							Write-Error $errorMessage -ErrorAction Continue
-						}
-						
-					})
-			}
-			end
-			{
-				return $objDisplayNames
-			}
-			
-		} #End function Get-GPODisplayNames
-		
+	$OUs | ForEach-Object -Parallel {
+
 		$OU = $_
 		$ouGPOs = @()
 		$ouChildNames = @()
@@ -335,9 +356,20 @@ try
 		try
 		{
 			Write-Verbose -Message ("Examining Sub-OUs of: {0}" -f $ouDN)
-			[Array]$ouChildNames = ($ouParent).psBase.Children | Where-Object { $_.psBase.schemaClassName -eq "OrganizationalUnit" } | Select-Object -ExpandProperty distinguishedName
-			if (($ouChildNames).Count -ge 1) { $ChildOUs = [String]($ouChildNames -join "`n") }
-			else { $ChildOUs = "None" }
+			[Array]$ouChildNames = Get-ADOrganizationalUnit -LDAPFilter '(objectClass=organizationalUnit)' -Properties * -SearchBase $ouDN -SearchScope OneLevel -Server $using:pdcE -ResultSetSize $null | Select-Object -ExpandProperty DistinguishedName
+			if ($? -eq $false)
+			{
+				[Array]$ouChildNames = Get-ADOrganizationalUnit -LDAPFilter '(objectClass=organizationalUnit)' -Properties * -SearchBase $ouDN -SearchScope OneLevel -Server $using:dnsRoot -ResultSetSize $null | Select-Object -ExpandProperty DistinguishedName
+			}
+			
+			if (($ouChildNames).Count -ge 1)
+			{
+				$ChildOUs = [String]($ouChildNames -join "`n")
+			}
+			else
+			{
+				$ChildOUs = "None"
+			}
 		}
 		catch
 		{
@@ -345,9 +377,7 @@ try
 			$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
 			Write-Error $errorMessage -ErrorAction Continue
 		}
-		
-		
-		
+
 		if ($null -ne $OU.ManagedBy)
 		{
 			$ouMgr = ($OU).ManagedBy
@@ -363,8 +393,34 @@ try
 			$ouGPOs = $OU | Select-Object -ExpandProperty LinkedGroupPolicyObjects
 			if ($ouGPOs.Count -ge 1)
 			{
-				$ouGPODisplayNames = Get-GPODisplayNames -GPOs $ouGPOs
-				$ouGPODisplayNames = $ouGPODisplayNames -join "`n"
+				try
+				{
+					$ouGPONames = $OU | Select-Object -Property *, @{
+						Name	      = 'GPODisplayName'
+						Expression = {
+							$_.LinkedGroupPolicyObjects | ForEach-Object {
+								-join ([adsi]"LDAP://$_").displayName
+							}
+						}
+					}
+					
+					if ($? -eq $true)
+					{
+						$ouGPODisplayNames = $ouGPONames.GPODisplayName -join "`n"
+					}
+					else
+					{
+						$ouGPODisplayNames = (Get-GPInheritance -Target $ouDN | `
+							Select-Object -Property GpoLinks).GpoLinks | Select-Object -ExpandProperty DisplayName
+					}
+					
+				}
+				catch
+				{
+					$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+					Write-Error $errorMessage -ErrorAction Continue
+				}
+
 			}
 			else
 			{
@@ -377,24 +433,25 @@ try
 			Write-Error $errorMessage -ErrorAction Continue
 		}
 		
-		$ouObject += New-Object -TypeName PSCustomObject -Property ([ordered] @{
-			"Domain" = $using:dnsRoot
-			"OU Name" = $ouDN
-			"Parent OU" = $ouParentName
-			"Child OUs" = $ChildOUs
-			"Managed By" =  $ouMgr
-			"Linked GPOs" = $ouGPODisplayNames
-			"When Created" = $ouCreated
-			"When Changed" = $ouLastModified
-			})
+		$table = $using:ouTable
+		$ouRow = $table.NewRow()
+		$ouRow."Domain" = $domDNS
+		$ouRow."OU Name" = $ouDN
+		$ouRow."Parent OU" = $ouParentName
+		$ouRow."Child OUs" = $ChildOUs
+		$ouRow."Managed By" = $ouMgr
+		$ouRow."Delegated Objects" = "See separate report" #$OUDelegatePerms -join "`n"
+		$ouRow."Linked GPOs" = $ouGPODisplayNames
 		
-		$ouDN = $ChildOUs = $OUParent = $ouParentName = $ouChildNames = $ouGPODisplayNames = $null
+		$table.Rows.Add($ouRow)
 		
-		Write-Output $ouObject
+		$null = $ouDN = $ChildOUs = $OUParent = $ouParentName = $ouChildNames = $ChildOUs = $ouMgr = $ouGPOs = $ouGPONames = $ouGPODisplayNames
+		[System.GC]::GetTotalMemory('ForceFullCollection') | Out-Null
+
 	} -ThrottleLimit $throttleLimit
 	
 	$null = $OUs
-	[System.GC]::GetTotalMemory('forcefullcollection') | Out-Null
+	[System.GC]::GetTotalMemory('ForceFullCollection') | Out-Null
 }
 catch
 {
@@ -405,29 +462,40 @@ finally
 {
 	#Save output
 	
+	$driveRoot = (Get-Location).Drive.Root
+	$rptFolder = "{0}{1}" -f $driveRoot, "Reports"
+	
 	Test-PathExists -Path $rptFolder -PathType Folder
 	
-	Write-Verbose -Message "Exporting data tables to Excel spreadsheet tabs."
 	$strDomain = $DomainName.ToString().ToUpper()
-	$outputCSV = "{0}\{1}" -f $rptFolder, "$($strDomain)_OU_Structure_as_of_$(Get-ReportDate).csv"
-	$outputFile = "{0}\{1}" -f $rptFolder, "$($strDomain)_OU_Structure_as_of_$(Get-ReportDate).xlsx"
-
-	$ExcelParams = @{
-		Path	        = $outputFile
-		StartRow     = 2
-		StartColumn  = 1
-		AutoSize     = $true
-		AutoFilter   = $true
-		BoldTopRow   = $true
-		FreezeTopRow = $true
+	
+	$colToExport = $ouHeaders.ColumnName
+	
+	if ($ouTable.Rows.Count -gt 1)
+	{
+		Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
+		$outputCSV = "{0}\{1}_{2}_Active_Directory_OU_Structure_Report.csv" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $strDomain
+		$ouTable | Select-Object $colToExport | Export-Csv -Path $outputCSV -NoTypeInformation
+		
+		Write-Verbose ("[{0} UTC] Exporting results data in Excel format, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
+		$outputFile = "{0}\{1}_{2}_Active_Directory_OU_Structure_Report.xlsx" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $strDomain
+		$ExcelParams = @{
+			Path	        = $outputFile
+			StartRow     = 2
+			StartColumn  = 1
+			AutoSize     = $true
+			AutoFilter   = $true
+			BoldTopRow   = $true
+			FreezeTopRow = $true
+		}
+		
+		$Excel = $ouTable | Select-Object $colToExport | Export-Excel @ExcelParams -WorkSheetname "AD Organizational Units" -PassThru
+		$Sheet = $Excel.Workbook.Worksheets["AD Organizational Units"]
+		$totalRows = $Sheet.Dimension.Rows
+		Set-Format -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Bottom -HorizontalAlignment Left
+		Export-Excel -ExcelPackage $Excel -WorksheetName "AD Organizational Units" -Title "$($strDomain) Active Directory OU Configuration" -TitleFillPattern Solid -TitleSize 18 -TitleBackgroundColor LightBlue
 	}
 	
-	$colResults | Export-Csv -Path $outputCSV -NoTypeInformation
-	$Excel = $colResults | Export-Excel @ExcelParams -WorkSheetname "AD Organizational Units" -PassThru
-	$Sheet = $Excel.Workbook.Worksheets["AD Organizational Units"]
-	$totalRows = $Sheet.Dimension.Rows
-	Set-Format -Address $Sheet.Cells["A2:Z$($totalRows)"] -Wraptext -VerticalAlignment Center -HorizontalAlignment Center
-	Export-Excel -ExcelPackage $Excel -WorksheetName "AD Organizational Units" -Title "$($strDomain) Active Directory OU Configuration"  -TitleFillPattern Solid -TitleSize 18 -TitleBackgroundColor LightBlue
 }
 
 #endregion

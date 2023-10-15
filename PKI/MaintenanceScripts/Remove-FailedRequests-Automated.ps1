@@ -6,19 +6,22 @@ RISK OF THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS	WITH
 THE USER.
 
 .SYNOPSIS
-    Clean expired certificates from CA database within the defined time period.
+    Clean failed certificate requests from CA database within the 
+    defined time period.
 
 .DESCRIPTION
     This script will connect to the Certification Authority server defined in the
-	script to locate and remove any expired certificate within the last year,
-    except those issued by templates that are filtered out, from the CA database, 
-	and if specified will ignore certificates issued from EFS, sMIME and key 
-	recovery agent templates. This script will not compact or cleanup 
+	script to locate and remove any failed requests within the last year and will
+	remove them from the CA database. This script will not compact or cleanup 
 	white space in the database.
 
+.OUTPUTS
+    Console output for number of failed requests that will be removed along
+    with the request id of the failed request that was removed.
+
 .EXAMPLE 
-    PS> Remove-ExpiredCerts-Automated.ps1
-	
+    PS> Remove-FailedRequests-Automated.ps1
+
 .LINK
     https://www.sysadmins.lv/blog-en/categoryview/powershellpowershellpkimodule.aspx
 
@@ -26,7 +29,6 @@ THE USER.
     https://github.com/Crypt32/PSPKI
 
 #>
-
 
 ###########################################################################
 #
@@ -36,48 +38,41 @@ THE USER.
 #
 #
 # VERSION HISTORY:
-# 	2.0 10/11/2023 - Revised search syntax
+# 	1.0 6/4/2019 - Initial release
 #
 # 
 ###########################################################################
 
-[CmdletBinding()]
-Param (
-	[Parameter(Mandatory = $false, HelpMessage = "Use this switch to filter out certificates issued by specified certificate templates.",
-			Position = 0)]
-	[Switch]$ApplyFilters
-)
 
 #Modules
 try
 {
-	Import-Module -Name PSPKI -Force -ErrorAction Stop
+	Import-Module PSPKI -Force
 }
 catch
 {
 	try
 	{
-		$moduleName = 'PSPKI'
-		$ErrorActionPreference = 'Stop';
-		$module = Get-Module -ListAvailable -Name $moduleName;
-		$ErrorActionPreference = 'Continue';
+		$module = Get-Module -Name PSPKI;
 		$modulePath = Split-Path $module.Path;
 		$psdPath = "{0}\{1}" -f $modulePath, "PSPKI.psd1"
 		Import-Module $psdPath -ErrorAction Stop
 	}
 	catch
 	{
-		Write-Error "PSPKI PS module could not be loaded. $($_.Exception.Message)" -ErrorAction Stop
+		throw "PSPKI module could not be loaded. $($_.Exception.Message)"
 	}
+	
 }
 
 #Variables
-[String]$sMIME = 'S/MIME'
-[String]$efs = 'EFS'
-[String]$Recovery = 'Recovery'
 $StartDate = [datetime]::UtcNow.AddDays(-7)
 $EndDate = [datetime]::UtcNow
 $CA = [System.Net.Dns]::GetHostByName("LocalHost").HostName
+
+
+
+
 
 
 
@@ -91,66 +86,32 @@ try
 catch
 {
 	$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
-	Write-Error $errorMessage -ErrorAction Stop
+	Write-Error $errorMessage -ErrorAction Continue
 }
+   
 
-If ( $PSBoundParameters.ContainsKey("ApplyFilters") )
-{
-	If ( ( Get-Module -Name PSPKI).Version -ge 3.4 )
+If ( ( Get-Module -Name PSPKI).Version -ge 3.4 ) 
+{ 
+	try
 	{
-		try
-		{
-			$CA | Get-IssuedRequest -Filter "RequestID -gt $LastID", "NotAfter -ge $StartDate", "NotAfter -le $EndDate" -Properties $certProps -Page $pageNumber -PageSize $pageSize -ErrorAction Stop | `
-			Where-Object { ((($_.CertificateTemplateOid.FriendlyName) -notlike "*$Recovery*") -and (($_.CertificateTemplateOid.FriendlyName) -notlike "*$efs*") -and (($_.CertificateTemplateOid.FriendlyName) -notlike "*$sMime*")) } | `
-			Remove-AdcsDatabaseRow
-		}
-		catch
-		{
-			$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
-			Write-Error $errorMessage -ErrorAction Continue
-		}
+		$CA | Get-FailedRequest -Filter "Request.SubmittedWhen -ge $StartDate", "Request.SubmittedWhen -le $EndDate" -ErrorAction Stop | Remove-AdcsDatabaseRow
 	}
-	Else
+	catch
 	{
-		try
-		{
-			$CA | Get-IssuedRequest -Filter "RequestID -gt $LastID", "NotAfter -ge $StartDate", "NotAfter -le $EndDate" -Properties $certProps -Page $pageNumber -PageSize $pageSize -ErrorAction Stop | `
-			Where-Object { ((($_.CertificateTemplateOid.FriendlyName) -notlike "*$Recovery*") -and (($_.CertificateTemplateOid.FriendlyName) -notlike "*$efs*") -and (($_.CertificateTemplateOid.FriendlyName) -notlike "*$sMime*")) } | `
-			Remove-DatabaseRow
-		}
-		catch
-		{
-			$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
-			Write-Error $errorMessage -ErrorAction Continue
-		}
+		$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+		Write-Error $errorMessage -ErrorAction Continue
 	}
 }
 Else
 {
-	If ( ( Get-Module -Name PSPKI).Version -ge 3.4 )
+	try
 	{
-		try
-		{
-			$CA | Get-IssuedRequest -Filter "NotAfter -ge $StartDate", "NotAfter -le $EndDate" -ErrorAction Stop | Remove-AdcsDatabaseRow
-		}
-		catch
-		{
-			$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
-			Write-Error $errorMessage -ErrorAction Continue
-		}
-
+		$CA | Get-FailedRequest -Filter "Request.SubmittedWhen -ge $StartDate", "Request.SubmittedWhen -le $EndDate" -ErrorAction Stop | Remove-DatabaseRow 
 	}
-	Else
+	catch
 	{
-		try
-		{
-			Get-IssuedRequest -CertificationAuthority $CA -Filter "NotAfter -ge $StartDate", "NotAfter -le $EndDate" | Remove-DatabaseRow
-		}
-		catch
-		{
-			$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
-			Write-Error $errorMessage -ErrorAction Continue
-		}
+		$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+		Write-Error $errorMessage -ErrorAction Continue
 	}
 }
 
@@ -160,8 +121,8 @@ Else
 # SIG # Begin signature block
 # MIIx1AYJKoZIhvcNAQcCoIIxxTCCMcECAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAs8E/5XjSdqLvJ
-# 4n1CZa8ANmUe9fyPvSi4txRUccOLZ6CCLAkwggV/MIIDZ6ADAgECAhAYtcKEQ5AS
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBnvnWy7xPX+M67
+# XCv3wJpD6OK/lO48H1UaA0wKuH0SnaCCLAkwggV/MIIDZ6ADAgECAhAYtcKEQ5AS
 # l0GsCYozZaYQMA0GCSqGSIb3DQEBCwUAMFIxEzARBgoJkiaJk/IsZAEZFgNjb20x
 # GDAWBgoJkiaJk/IsZAEZFghEZWxvaXR0ZTEhMB8GA1UEAxMYRGVsb2l0dGUgU0hB
 # MiBMZXZlbCAxIENBMB4XDTE1MDkwMTE1MDcyNVoXDTM1MDkwMTE1MDcyNVowUjET
@@ -400,28 +361,28 @@ Else
 # ZAEZFgNjb20xGDAWBgoJkiaJk/IsZAEZFghkZWxvaXR0ZTEWMBQGCgmSJomT8ixk
 # ARkWBmF0cmFtZTEjMCEGA1UEAxMaRGVsb2l0dGUgU0hBMiBMZXZlbCAzIENBIDIC
 # E2UAlTjZ9v0SXfONTCAAAgCVONkwDQYJYIZIAWUDBAIBBQCgTDAZBgkqhkiG9w0B
-# CQMxDAYKKwYBBAGCNwIBBDAvBgkqhkiG9w0BCQQxIgQgAANkXSDalfOxSKSUtYcP
-# BdrZtyabSPQrUWdeJX5DgAAwDQYJKoZIhvcNAQEBBQAEggEACfoVTqqpVfMu+ooy
-# BYGTf34by0u1pLe3v11BCB/HDui42MeE82uIBN1ZgWGawbeEddqzsujhDZDP5M15
-# Z3xRcqkIOgUEV51J7NdG/02oyj+Q0m/GMIQT0w1WwDHtoO011HXziZsowM1fe83N
-# 9jltbYT1inFFKWsd9OoV5jxDoEr0xQjdTDVMTn0PGcFjV6T0cGmFjuZs9GXv3E1y
-# 4l6iMC6YJWT7Zof9yMlrKvABnDz/UYyBuENlbFceZYdikQZJyzpHqjCkFH6/bPCd
-# oduTqWuPsOp8ChsFqKjkRS8nMteMFUmQYZWyPE2KsT0HFP4663vY+X19D3VVQl1l
-# NV2KhqGCAyAwggMcBgkqhkiG9w0BCQYxggMNMIIDCQIBATB3MGMxCzAJBgNVBAYT
+# CQMxDAYKKwYBBAGCNwIBBDAvBgkqhkiG9w0BCQQxIgQgHi3yePXQaHNbdyOA/1qC
+# 4xgoifOhPZAwSWSnmVox93QwDQYJKoZIhvcNAQEBBQAEggEAIoafd4YgTrp54M7k
+# 9EgQow1E8aMp+yuceIyv9UOpPB8Nc1gYLuK4OQT5DBC9AusyxBS8ImzNValxwjtE
+# GXAIBX4nELyfMFSqKr8P2geItZXwKrNjrze6FH4vpdYmm0AvL5D2J6bYd/NpQe1u
+# uQIkOH9MtTvxt+1DBKltLUun7/pI58/eDzIp8QKle56XiBFT20S4zWF5PMT6RdUt
+# QIpvW2hOTMBQwQH+D7aAvFeqW7k538Vp1Jd0eoGmZGqT34omSIkg9jwc+DOUGHjr
+# fUJabcZk/PRuFLmAB9rXMqhJiD2hm9AHTtTq0P8XLa8sar+E3siQ+eqFNgJxwkMw
+# GYmhlKGCAyAwggMcBgkqhkiG9w0BCQYxggMNMIIDCQIBATB3MGMxCzAJBgNVBAYT
 # AlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjE7MDkGA1UEAxMyRGlnaUNlcnQg
 # VHJ1c3RlZCBHNCBSU0E0MDk2IFNIQTI1NiBUaW1lU3RhbXBpbmcgQ0ECEAVEr/OU
 # nQg5pr/bP1/lYRYwDQYJYIZIAWUDBAIBBQCgaTAYBgkqhkiG9w0BCQMxCwYJKoZI
-# hvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yMzEwMTEyMjQ5MjlaMC8GCSqGSIb3DQEJ
-# BDEiBCAnMd73nkhCsHqFh2AezJFtku6kJMZgZPn5yRrHHmwm8zANBgkqhkiG9w0B
-# AQEFAASCAgAyfornm11D1S35vw0JA+9DwrzPaeUELBgqDvtYWJp4xcrbt0demH69
-# SJcT5D0fC5adWScERmUzTt2TwUgu0LkyhGKvAu9y48PQGF18i+48Sd5Ci6UgRNxu
-# spmh36Ch4P04fWxYDcfb9YGCFfkzPHtb7rfw5HSaco+ZhBEHAgFVNdyoxbkJh7O/
-# rX9SW/uSnMookFH8aMWFG3SCCEuD/RdjsA9mQvNKKgE+T8U7yonMzFVT2fypUblR
-# kGCrg6mkgiPXZG3S52t3hgwCvwUxJnXwnzEb2f1bHgf+cGO3qOw6m0fE8xG62kxG
-# jN05YsVfJO6g67u8mLO6IK/G8TX8BQo6oX3VWbjTP9keQDP1CmH9eeTWZJK1V+re
-# CfO6ruWwcRnncIiTqeQEI9hc5LcF5Tgpi7/oux6O4HlbRs3TXT9IKD5QawZ+LJpf
-# 7zvOZN1mI8tKZUJX8TLeHNYw78Yy50cS1QRRf9CQyXG/JGAl+iDm0Tv3ovkScmAl
-# 7wIsntOP0AZHpa7x2v7lrnbttB/UkPRgyaf3/shGO6H3yN+qtUnCaGyIvQTmLFOC
-# Su6/0yNyl5aZOBI0Wwd/qgv9r/S0N9NvDdiqcdLxpY4Cb9iomXr7r982Ch6ObU6/
-# ISCtMTKa1iSVnf/nqCd7IX26q0h9s5f1APA2AJne0TJnZvJvdsnPCQ==
+# hvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yMzEwMTEyMjE3NThaMC8GCSqGSIb3DQEJ
+# BDEiBCDn1F717MSAy6Gy7NGxOMnzxiqH4RUu2G+acMtU+ucPyDANBgkqhkiG9w0B
+# AQEFAASCAgCLDSn7ENxXPs3xIaB8D1A3CDVP0sNkl0G6cYxi42g7DwU6D+kBH6h2
+# ZMQJnODf4XGdF1Q8iLeJJyi4toFDIZyknZeiQEUdIwe7qUHdO63pyQYa4Qsf/cr5
+# bPe7tCMhz3OCejb+rcpMxYRc1n+mzD/HnMz94m7AGN0PSJcczbmFDKw1s0g74mkT
+# UnJs6+L9OlQpAYp6oWU6KeBC/sxM/dU7JcHfLN24jm9bZ/zXxZel9RG0BSgvJU3m
+# +4iAEmA6Zm1hI0IjNlgIfOJt9o2Uy7OtCaMjKtA5+vB0u4LU5mlMnmJJpftE7+W2
+# stQ9JJyhi8bmMsQhx5HVdnClkCjbdV12cbE647wKfKAFryt7BmXoN5Fw5G75GtVB
+# oItMSzfDWefb8mf22cpi2A7rKMl++A/AWBgZf5ridwaZcqYWnz+phLhEcNrtLkvF
+# aML32MqlV4MSzDuzuJQlheXlRRiXc0i6evVxIqTrqyUwIHt32js6c2qQa02awrDu
+# ZXRVXOuvKpVowfBinQ69Vz4KRqvb5d+p+yt6i6rKUir2Hajb7An0ZWLj9inzPCuq
+# RP7IyXZVRfMmQyBLUx2COPzshPU54chKL0MAWOr3D4y2+E+tgMrugmTEu/zwO0YG
+# T+rd3xqbNYPGmGW89Z2jJPaaNbiptbZCyvw12hBbsvIA/k3KaGN+LQ==
 # SIG # End signature block

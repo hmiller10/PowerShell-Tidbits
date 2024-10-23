@@ -244,7 +244,7 @@ try
 		
 		$dtSLB.Rows.Add($slbRow)
 		
-		$slbName = $slbDN = $slbLinksIncluded = $null
+		$slbName = $slbDN = $slbLinksIncluded = $slbProtocol = $null
 		[System.GC]::GetTotalMemory('ForceFullCollection') | Out-Null
 		
 	})

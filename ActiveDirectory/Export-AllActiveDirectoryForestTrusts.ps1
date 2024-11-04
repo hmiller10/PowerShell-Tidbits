@@ -454,7 +454,6 @@ finally
 			AutoSize = $true
 			AutoFilter = $true
 			BoldTopRow = $true
-			FreezeTopRow = $true
 			PassThru = $true
 		}
 		
@@ -463,7 +462,7 @@ finally
 		Set-ExcelRange -Range $Sheet.Cells["A2:Z2"] -WrapText -HorizontalAlignment Center -VerticalAlignment Center -AutoFit
 		$cols = $Sheet.Dimension.Columns
 		Set-ExcelRange -Range $Sheet.Cells["A3:Z$($cols)"] -Wraptext -HorizontalAlignment Left -VerticalAlignment Bottom
-		Export-Excel -ExcelPackage $xl -WorksheetName $wsName -Title "Active Directory Trust Configuration" -TitleBold -TitleSize 16
+		Export-Excel -ExcelPackage $xl -WorksheetName $wsName -FreezePane 3, 0 -Title "Active Directory Trust Configuration" -TitleBold -TitleSize 16
 	} #end If
 	
 }

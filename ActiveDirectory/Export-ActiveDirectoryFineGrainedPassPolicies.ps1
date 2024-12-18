@@ -25,16 +25,25 @@
 	
 	.NOTES
 		THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE
-		RISK OF THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH
-		THE USER.
-
+		ENTIRE RISK OF THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS
+		WITH THE USER.
+	
 	.LINK
-		https://www.powershellgallery.com/packages/ImportExcel/
-		
+		https://github.com/dfinke/ImportExcel
+	
 	.LINK
 		https://www.powershellgallery.com/packages/HelperFunctions/
 #>
 
+###########################################################################
+#
+#
+# AUTHOR:  Heather Miller
+#
+# VERSION HISTORY: 5.0 - Reformatted Excel output to provide cleaner report
+# presentation
+# 
+############################################################################
 [CmdletBinding()]
 param
 (
@@ -42,10 +51,10 @@ param
 	[ValidateNotNullOrEmpty()]
 	[string]
 	$ForestName,
-	[Parameter(Mandatory = $false)]
+	[Parameter(Mandatory = $false,
+	HelpMessage = 'Enter credential for remote forest.')]
 	[ValidateNotNull()]
-	[System.Management.Automation.PsCredential]
-	[System.Management.Automation.Credential()]
+	[System.Management.Automation.PsCredential][System.Management.Automation.Credential()]
 	$Credential = [System.Management.Automation.PSCredential]::Empty
 )
 
@@ -137,27 +146,74 @@ ColumnName,DataType
 
 #endregion
 
+#region Functions
+
+
+#endregion
+
+
+
+
 
 
 #region Script
 $Error.Clear()
 try
 {
+	# Enable TLS 1.2 and 1.3
 	try
 	{
 		#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
 		if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls12')
 		{
-		    Write-Verbose -Message 'Adding support for TLS 1.2'
-		    [Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls12
+			Write-Verbose -Message 'Adding support for TLS 1.2'
+			[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls12
 		}
 	}
 	catch
 	{
 		Write-Warning -Message 'Adding TLS 1.2 to supported security protocols was unsuccessful.'
-	}	   
+	}
+	
+	try
+	{
+		$localComputer = Get-CimInstance -ClassName CIM_ComputerSystem -Namespace 'root\CIMv2' -ErrorAction Stop
+	}
+	catch
+	{
+		$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+		Write-Error $errorMessage -ErrorAction Continue
+	}
 	   
-	$domfgPPTblName = "{0}_Domain_Fine-Grained_Password_Policies" -f $Forest.Name
+	if ($null -ne $localComputer.Name)   
+	{
+		if (($localComputer.Caption -match "Windows 11") -eq $true) {
+			try {
+				#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
+				if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls13') {
+					Write-Verbose -Message 'Adding support for TLS 1.3'
+					[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls13
+				}
+			}
+			catch {
+				Write-Warning -Message 'Adding TLS 1.3 to supported security protocols was unsuccessful.'
+			}
+		}
+		elseif (($localComputer.Caption -match "Server 2022") -eq $true) {
+			try {
+				#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
+				if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls13') {
+					Write-Verbose -Message 'Adding support for TLS 1.3'
+					[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls13
+				}
+			}
+			catch {
+				Write-Warning -Message 'Adding TLS 1.3 to supported security protocols was unsuccessful.'
+			}
+		}
+	}   
+	   
+	$domfgPPTblName = "tblADFineGrainedPassPolicies"
 	$dtfgPPHeaders = ConvertFrom-Csv -InputObject $dtfgPPHeadersCsv
 	try
 	{
@@ -189,17 +245,27 @@ try
 	foreach ($Forest in $ForestName)
 	{
 		$ForestParams = @{
+			Identity = $Forest
+			Server = $Forest
 			ErrorAction = 'Stop'
 		}
-
+	
 		if (($PSBoundParameters.ContainsKey('Credential')) -and ($null -ne $PSBoundParameters["Credential"]))
 		{
 			$ForestParams.Add('AuthType', 'Negotiate')
 			$ForestParams.Add('Credential', $Credential)
 		}
 		
-		$DSForest = Get-ADForest -Identity $Forest @ForestParams
-		$DSForestName = $DSForest.Name.ToString().ToUpper()
+		try
+		{
+			$DSForest = Get-ADForest @ForestParams
+			$DSForestName = $DSForest.Name.ToString().ToUpper()
+		}
+		catch
+		{
+			$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+			Write-Error $errorMessage -ErrorAction Continue
+		}
 		
 		$Domains = ($DSForest).Domains
 		$dCount = 1
@@ -362,12 +428,13 @@ finally
 	$ColToExport = $dtfgPPHeaders.ColumnName
 	
 	$outputFile = "{0}\{1}-{2}-Finegrained-Password-Policies.csv" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $DSForestName
+	$xlOutput = $OutputFile.ToString().Replace([System.IO.Path]::GetExtension($OutputFile), ".xlsx")
 	$domfgPPTable | Select-Object $ColToExport | Export-Csv -Path $outputFile -NoTypeInformation
 	
 	Write-Verbose -Message ("[{0} UTC] Exporting data tables to Excel spreadsheet tabs." -f (Get-UTCTime).ToString($dtmFormatString))
 	[String]$wsName = "AD Fine-Grained PP Config"
 	$xlParams = @{
-		Path	        = $outputFile.ToString().Replace([System.IO.Path]::GetExtension($outputFile), ".xlsx")
+		Path	         = $xlOutput
 		WorkSheetName = $wsName
 		TableStyle    = 'Medium15'
 		StartRow	    = 2
@@ -378,12 +445,41 @@ finally
 		PassThru	    = $true
 	}
 	
-	$xl = $domfgPPTable | Select-Object $ColToExport | Sort-Object -Property "Domain Name" | Export-Excel @xlParams
-	$Sheet = $xl.Workbook.Worksheets["AD Fine-Grained PP Config"]
-	Set-ExcelRange -Range $Sheet.Cells["A2:Z2"] -WrapText -HorizontalAlignment Center -VerticalAlignment Center -AutoFit
-	$cols = $Sheet.Dimension.Columns
-	Set-ExcelRange -Range $Sheet.Cells["A3:Z$($cols)"] -Wraptext -HorizontalAlignment Left -VerticalAlignment Bottom
-	Export-Excel -ExcelPackage $xl -WorksheetName $wsName -FreezePane 3,0 -Title "Active Directory Fine-Grained Password Policies" -TitleBold -TitleSize 16
+	$headerParams1 = @{
+		Bold			     = $true
+		VerticalAlignment   = 'Center'
+		HorizontalAlignment = 'Center'
+	}
+	
+	$headerParams2 = @{
+		Bold			     = $true
+		VerticalAlignment   = 'Center'
+		HorizontalAlignment = 'Left'
+	}
+	
+	$setParams = @{
+		VerticalAlignment   = 'Bottom'
+		HorizontalAlignment = 'Left'
+	}
+	
+	$titleParams = @{
+		FontColor         = 'White'
+		FontSize	        = 16
+		Bold		        = $true
+		BackgroundColor   = 'Black'
+		BackgroundPattern = 'Solid'
+	}
+	
+	$xl = $domfgPPTable| Select-Object $colToExport | Sort-Object -Property "Domain Name" | Export-Excel @xlParams
+	$Sheet = $xl.Workbook.Worksheets[$wsName]
+	$lastRow = $siteSheet.Dimension.End.Row
+		
+	Set-ExcelRange -Range $Sheet.Cells["A1"] -Value "$($DSForestName) Active Directory Fine-Grained Password Policies" @titleParams
+	Set-ExcelRange -Range $Sheet.Cells["A2"] @headerParams1
+	Set-ExcelRange -Range $Sheet.Cells["B2:Z2"] @headerParams2
+	Set-ExcelRange -Range $Sheet.Cells["A3:N$($lastRow)"] @setParams
+		
+	Export-Excel -ExcelPackage $xl -AutoSize -FreezePane 3, 0 -WorksheetName $wsName
 	[System.GC]::GetTotalMemory('ForceFullCollection') | Out-Null
 }
 

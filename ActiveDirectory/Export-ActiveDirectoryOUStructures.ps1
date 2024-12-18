@@ -2,11 +2,6 @@
 #Requires -Version 5
 #Requires -RunAsAdministrator
 <#
-	.NOTES
-	THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE
-	RISK OF THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH
-	THE USER.
-
 	.SYNOPSIS
 		Create OU report
 
@@ -29,26 +24,51 @@
 	.EXAMPLE
 	PS C:> .\Export-ActiveDirectoryOUStructures.ps1 -DomainName my.domain.com -Credential PSCredential
 
+	.NOTES
+		THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE
+		ENTIRE RISK OF THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS
+		WITH THE USER.
+	
 	.LINK
-	https://github.com/dfinke/ImportExcel
+		https://github.com/dfinke/ImportExcel
+	
+	.LINK
+		https://www.powershellgallery.com/packages/HelperFunctions/
 #>
 
+###########################################################################
+#
+#
+# AUTHOR:  Heather Miller
+#
+# VERSION HISTORY: 5.0 - Reformatted Excel output to provide cleaner report
+# presentation
+# 
+###########################################################################
 [CmdletBinding()]
 param
 (
 [Parameter(Mandatory = $true)]
 [ValidateNotNullOrEmpty()]
 [string]$DomainName,
-[Parameter(Mandatory = $false)]
+[Parameter(Mandatory = $false,
+	HelpMessage = 'Enter credential for remote forest.')]
+[ValidateNotNull()]
+[System.Management.Automation.PsCredential][System.Management.Automation.Credential()]
+$Credential = [System.Management.Automation.PSCredential]::Empty,
+[Parameter(Mandatory = $true,
+	HelpMessage = 'Specify the file output format you desire.')]
+[ValidateSet('CSV', 'Excel', IgnoreCase = $true)]
 [ValidateNotNullOrEmpty()]
-[System.Management.Automation.PsCredential]$Credential
+[string]
+$OutputFormat
 )
 
 #Region Modules
 #Check if required module is loaded, if not load import it
 try
 {
-	Import-Module ActiveDirectory -ErrorAction Stop
+	Import-Module -Name ActiveDirectory -Force -ErrorAction Stop
 }
 catch
 {
@@ -273,46 +293,99 @@ begin
 
 #Region Script
 $Error.Clear()
-
-$domainParams = @{
-	Identity    = $DomainName
-	Server	  = $DomainName
-	ErrorAction = 'Stop'
-}
-
-if (($PSBoundParameters.ContainsKey('Credential')) -and ($null -ne $PSBoundParameters["Credential"]))
-{
-	$domainParams.Add('AuthType', 'Negotiate')
-	$domainParams.Add('Credential', $Credential)
-}
-
 try
 {
-	$Domain = Get-ADDomain @domainParams | Select-Object -Property distinguishedName, DnsRoot, Name, pdcEmulator
-}
-catch
-{
-	$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
-	Write-Error $errorMessage -ErrorAction Stop
-}
-
-
-if ($null -ne $Domain.DistinguishedName)
-{
-	$domainDN = $Domain.DistinguishedName
-	$domDNS = $Domain.dnsRoot
-	$pdcFSMO = $Domain.pdcEmulator
-}
-
-
-
-#List properties to be collected into array for writing to OU tab
-$OUs = @()
-$ouProps = @("distinguishedName", "gpLink", "LinkedGroupPolicyObjects", "ManagedBy", "Name", "ntSecurityDescriptor", "objectCategory", "objectClass", "ParentGUID", "sDRightsEffective", "whenCreated", "whenChanged")
-
-Write-Verbose -Message ("Gathering collection of AD Organizational Units for {0}" -f $Domain.Name)
-try
-{
+	# Enable TLS 1.2 and 1.3
+	try
+	{
+		#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
+		if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls12')
+		{
+			Write-Verbose -Message 'Adding support for TLS 1.2'
+			[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls12
+		}
+	}
+	catch
+	{
+		Write-Warning -Message 'Adding TLS 1.2 to supported security protocols was unsuccessful.'
+	}
+	
+	try
+	{
+		$localComputer = Get-CimInstance -ClassName CIM_ComputerSystem -Namespace 'root\CIMv2' -ErrorAction Stop
+	}
+	catch
+	{
+		$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+		Write-Error $errorMessage -ErrorAction Continue
+	}
+	   
+	if ($null -ne $localComputer.Name)   
+	{
+		if (($localComputer.Caption -match "Windows 11") -eq $true) {
+			try {
+				#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
+				if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls13') {
+					Write-Verbose -Message 'Adding support for TLS 1.3'
+					[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls13
+				}
+			}
+			catch {
+				Write-Warning -Message 'Adding TLS 1.3 to supported security protocols was unsuccessful.'
+			}
+		}
+		elseif (($localComputer.Caption -match "Server 2022") -eq $true) {
+			try {
+				#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
+				if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls13') {
+					Write-Verbose -Message 'Adding support for TLS 1.3'
+					[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls13
+				}
+			}
+			catch {
+				Write-Warning -Message 'Adding TLS 1.3 to supported security protocols was unsuccessful.'
+			}
+		}
+	}
+	
+	$domainParams = @{
+		Identity    = $DomainName
+		Server	  = $DomainName
+		ErrorAction = 'Stop'
+	}
+	
+	if (($PSBoundParameters.ContainsKey('Credential')) -and ($null -ne $PSBoundParameters["Credential"]))
+	{
+		$domainParams.Add('AuthType', 'Negotiate')
+		$domainParams.Add('Credential', $Credential)
+	}
+	
+	try
+	{
+		$Domain = Get-ADDomain @domainParams | Select-Object -Property distinguishedName, DnsRoot, Name, pdcEmulator
+	}
+	catch
+	{
+		$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+		Write-Error $errorMessage -ErrorAction Stop
+	}
+	
+	
+	if ($null -ne $Domain.DistinguishedName)
+	{
+		$domainDN = $Domain.DistinguishedName
+		$domDNS = $Domain.dnsRoot
+		$pdcFSMO = $Domain.pdcEmulator
+	}
+	
+	
+	
+	#List properties to be collected into array for writing to OU tab
+	$OUs = @()
+	$ouProps = @("distinguishedName", "gpLink", "LinkedGroupPolicyObjects", "ManagedBy", "Name", "ntSecurityDescriptor", "objectCategory", "objectClass", "ParentGUID", "sDRightsEffective", "whenCreated", "whenChanged")
+	
+	Write-Verbose -Message ("Gathering collection of AD Organizational Units for {0}" -f $Domain.Name)
+	
 	$ouParams = @{
 		Filter	    = '*'
 		Properties    = $ouProps
@@ -337,175 +410,189 @@ try
 	}
 	
 	$OUs.ForEach({
-		
-		$OU = $_
-		$ouGPOs = @()
-		$ouChildNames = @()
-		
-		$ouDN = ($OU).distinguishedName
-		$ouCreated = ($OU).whenCreated
-		$ouLastModified = ($OU).whenChanged
-		
-		try
-		{
-			Write-Verbose -Message ("Working on Organizational Unit: {0}" -f $ouDN)
-			#Convert the parentGUID attribute (stored as a byte array) into a proper-job GUID
-			$ParentGuid = ([GUID]$Ou.ParentGuid).Guid
 			
-			#Attempt to retrieve the object referenced by the parent GUID
-			$objParams = @{
-				Identity = $ParentGuid
-			}
+			$OU = $_
+			$ouGPOs = @()
+			$ouChildNames = @()
 			
-			if (($PSBoundParameters.ContainsKey('Credential')) -and ($null -ne ($PSBoundParameters["Credential"])))
+			$ouDN = ($OU).distinguishedName
+			$ouCreated = ($OU).whenCreated
+			$ouLastModified = ($OU).whenChanged
+			
+			try
 			{
-				$objParams.Add('AuthType', 'Negotiate')
-				$objParams.Add('Credential', $Credential)
-			}
-			
-			$ParentObject = Get-ADObject @objParams -Server $pdcFSMO -ErrorAction SilentlyContinue
-			if ($? -eq $False)
-			{
-				$ParentObject = Get-ADObject @objParams -Server $domDNS -ErrorAction SilentlyContinue
-			}
-		}
-		catch
-		{
-			Write-Warning ("Error occurred geting parent OU information for: {0}" -f $ouDN)
-			$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
-			Write-Error $errorMessage -ErrorAction Continue
-		}
-		
-		try
-		{
-			Write-Verbose -Message ("Examining Sub-OUs of {0}" -f $ouDN)
-			$childOUParams = @{
-				LDAPFilter    = '(objectClass=organizationalUnit)'
-				Properties    = 'DistinguishedName'
-				SearchBase    = $ouDN
-				SearchScope   = 'OneLevel'
-				ResultSetSize = $null
-			}
-			
-			if (($PSBoundParameters.ContainsKey('Credential')) -and ($null -ne ($PSBoundParameters["Credential"])))
-			{
-				$childOUParams.Add('AuthType', 'Negotiate')
-				$childOUParams.Add('Credential', $Credential)
-			}
-			
-			[Array]$ouChildNames = (Get-ADOrganizationalUnit @childOUParams -Server $pdcFSMO -ErrorAction SilentlyContinue).DistinguishedName
-			if ($? -eq $false)
-			{
-				[Array]$ouChildNames = (Get-ADOrganizationalUnit @childOUParams -Server $domDNS -ErrorAction Stop).DistinguishedName
-			}
-			
-		}
-		catch
-		{
-			Write-Warning -Message ("Error occurred get list of child OUs for {0}." -f $ouDN)
-			$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
-			Write-Error $errorMessage -ErrorAction Continue
-		}
-		
-		
-		if ($ouChildNames.Count -ge 1)
-		{
-			$ChildOUs = [String]($ouChildNames -join "`n")
-		}
-		else
-		{
-			$ChildOUs = "None"
-		}
-		
-		if ($null -ne $OU.ManagedBy)
-		{
-			$ouMgr = ($OU).ManagedBy
-		}
-		else
-		{
-			$ouMgr = "None listed for this OU."
-		}
-		
-		Write-Verbose -Message ("Gathering list of group policies linked to {0}." -f $ouDN)
-		try
-		{
-			$ouGPOs = $OU | Select-Object -ExpandProperty LinkedGroupPolicyObjects
-			if ($ouGPOs.Count -ge 1)
-			{
-				try
-				{
-					$ouGPONames = $OU | Select-Object -Property *, @{
-						Name	      = 'GPODisplayName'
-						Expression = {
-							$_.LinkedGroupPolicyObjects | ForEach-Object {
-								-join ([adsi]"LDAP://$_").displayName
-							}
-						}
-					}
-					
-					if ($? -eq $true)
-					{
-						$ouGPODisplayNames = $ouGPONames.GPODisplayName -join "`n"
-					}
-					else
-					{
-						$ouGPODisplayNames = (Get-GPInheritance -Target $ouDN -Domain $domDNS -Server $domDNS).GpoLinks | `
-						Foreach-Object { Get-GPO -Name ($_.DisplayName) -Domain $domDNS -Server $domDNS }
-					}
-					
+				Write-Verbose -Message ("Working on Organizational Unit: {0}" -f $ouDN)
+				#Convert the parentGUID attribute (stored as a byte array) into a proper-job GUID
+				$ParentGuid = ([GUID]$Ou.ParentGuid).Guid
+				
+				#Attempt to retrieve the object referenced by the parent GUID
+				$objParams = @{
+					Identity = $ParentGuid
 				}
-				catch
+				
+				if (($PSBoundParameters.ContainsKey('Credential')) -and ($null -ne ($PSBoundParameters["Credential"])))
 				{
-					$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
-					Write-Error $errorMessage -ErrorAction Continue
+					$objParams.Add('AuthType', 'Negotiate')
+					$objParams.Add('Credential', $Credential)
+				}
+				
+				$ParentObject = Get-ADObject @objParams -Server $pdcFSMO -ErrorAction SilentlyContinue
+				if ($? -eq $False)
+				{
+					$ParentObject = Get-ADObject @objParams -Server $domDNS -ErrorAction SilentlyContinue
+				}
+			}
+			catch
+			{
+				Write-Warning ("Error occurred geting parent OU information for: {0}" -f $ouDN)
+				$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+				Write-Error $errorMessage -ErrorAction Continue
+			}
+			
+			try
+			{
+				Write-Verbose -Message ("Examining Sub-OUs of {0}" -f $ouDN)
+				$childOUParams = @{
+					LDAPFilter    = '(objectClass=organizationalUnit)'
+					Properties    = 'DistinguishedName'
+					SearchBase    = $ouDN
+					SearchScope   = 'OneLevel'
+					ResultSetSize = $null
+				}
+				
+				if (($PSBoundParameters.ContainsKey('Credential')) -and ($null -ne ($PSBoundParameters["Credential"])))
+				{
+					$childOUParams.Add('AuthType', 'Negotiate')
+					$childOUParams.Add('Credential', $Credential)
+				}
+				
+				[Array]$ouChildNames = (Get-ADOrganizationalUnit @childOUParams -Server $pdcFSMO -ErrorAction SilentlyContinue).DistinguishedName
+				if ($? -eq $false)
+				{
+					[Array]$ouChildNames = (Get-ADOrganizationalUnit @childOUParams -Server $domDNS -ErrorAction Stop).DistinguishedName
 				}
 				
 			}
-			else
+			catch
 			{
-				$ouGPODisplayNames = "None"
-			}
-		}
-		catch
-		{
-			$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
-			Write-Error $errorMessage -ErrorAction Continue
-		}
-		
-		#$gc = $pdcFSMO + ":3268"
-		$permsHash = @{
-			OUDistinguishedName = $OU.DistinguishedName
-			DomainController = $pdcFSMO
-			VerboseOutput = $true
-			ErrorAction = 'Stop'
+				Write-Warning -Message ("Error occurred get list of child OUs for {0}." -f $ouDN)
+				$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+				Write-Error $errorMessage -ErrorAction Continue
 			}
 			
-		if (($PSBoundParameters.ContainsKey('Credential')) -and ($null -ne ($PSBoundParameters["Credential"])))
-		{
-			$permsHash.Add('AuthType', 'Negotiate')
-			$permsHash.Add('Credential', $Credential)
-		}
-		
-		$ouPerms = Get-ADOUPerms @permsHash
-		$ouPerms = $ouPerms | Select-Object -Property IdentityReference, ActiveDirectoryRights, AccessControlType
-		#$ouPerms = [string]($ouPerms -join "`n")
-		
-		$ouObject += New-Object -TypeName PSCustomObject -Property ([ordered] @{
-			"Domain"	     = $domDNS
-			"OU Name"	     = $ouDN
-			"Parent OU"    = $ParentObject
-			"Child OUs"    = $ChildOUs
-			"Managed By"   = $ouMgr
-			"Linked GPOs"  = $ouGPODisplayNames
-			"Permissions"  = $ouPerms | Out-String
-			"When Created" = $ouCreated
-			"When Changed" = $ouLastModified
+			
+			if ($ouChildNames.Count -ge 1)
+			{
+				if ($PSBoundParameters.ContainsValue('Excel'))
+				{
+					$ChildOUs = [String]($ouChildNames -join "`n")
+				}
+				elseif ($PSBoundParameters.ContainsValue('CSV'))
+				{
+					$ChildOUs = [String]($ouChildNames -join ";")
+				}
+			}
+			else
+			{
+				$ChildOUs = "None"
+			}
+			
+			if ($null -ne $OU.ManagedBy)
+			{
+				$ouMgr = ($OU).ManagedBy
+			}
+			else
+			{
+				$ouMgr = "None listed for this OU."
+			}
+			
+			Write-Verbose -Message ("Gathering list of group policies linked to {0}." -f $ouDN)
+			try
+			{
+				$ouGPOs = $OU | Select-Object -ExpandProperty LinkedGroupPolicyObjects
+				if ($ouGPOs.Count -ge 1)
+				{
+					try
+					{
+						$ouGPONames = $OU | Select-Object -Property *, @{
+							Name	      = 'GPODisplayName'
+							Expression = {
+								$_.LinkedGroupPolicyObjects | ForEach-Object {
+									-join ([adsi]"LDAP://$_").displayName
+								}
+							}
+						}
+						
+						if ($? -eq $true)
+						{
+							if ($PSBoundParameters.ContainsValue('Excel'))
+							{
+								$ouGPODisplayNames = $ouGPONames.GPODisplayName -join "`n"
+							}
+							elseif ($PSBoundParameters.ContainsValue('CSV'))
+							{
+								$ouGPODisplayNames = $ouGPONames.GPODisplayName -join ";"
+							}
+							
+						}
+						else
+						{
+							$ouGPODisplayNames = (Get-GPInheritance -Target $ouDN -Domain $domDNS -Server $domDNS).GpoLinks | `
+							Foreach-Object { Get-GPO -Name ($_.DisplayName) -Domain $domDNS -Server $domDNS }
+						}
+						
+					}
+					catch
+					{
+						$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+						Write-Error $errorMessage -ErrorAction Continue
+					}
+					
+				}
+				else
+				{
+					$ouGPODisplayNames = "None"
+				}
+			}
+			catch
+			{
+				$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+				Write-Error $errorMessage -ErrorAction Continue
+			}
+			
+			$permsHash = @{
+				OUDistinguishedName = $OU.DistinguishedName
+				DomainController    = $pdcFSMO
+				VerboseOutput	     = $true
+				ErrorAction	     = 'Stop'
+			}
+			
+			if (($PSBoundParameters.ContainsKey('Credential')) -and ($null -ne ($PSBoundParameters["Credential"])))
+			{
+				$permsHash.Add('AuthType', 'Negotiate')
+				$permsHash.Add('Credential', $Credential)
+			}
+			
+			$ouPerms = Get-ADOUPerms @permsHash
+			$ouPerms = $ouPerms | Select-Object -Property IdentityReference, ActiveDirectoryRights, AccessControlType
+			#$ouPerms = [string]($ouPerms -join "`n")
+			
+			$ouObject += New-Object -TypeName PSCustomObject -Property ([ordered] @{
+					"Domain"	    = $domDNS
+					"OU Name"     = $ouDN
+					"Parent OU"   = $ParentObject
+					"Child OUs"   = $ChildOUs
+					"Managed By"  = $ouMgr
+					"Linked GPOs" = $ouGPODisplayNames
+					"Permissions" = $ouPerms | Out-String
+					"When Created" = $ouCreated
+					"When Changed" = $ouLastModified
+				})
+			
+			$null = $OU = $ouDN = $ChildOUs = $OUParent = $ouParentName = $ouChildNames = $ouGPODisplayNames = $ouPerms
+			
+			$colResults += $ouObject
 		})
-		
-		$null = $OU = $ouDN = $ChildOUs = $OUParent = $ouParentName = $ouChildNames = $ouGPODisplayNames = $ouPerms
-		
-		$colResults += $ouObject
-	})
 	
 	$null = $OUs
 	[System.GC]::GetTotalMemory('ForceFullCollection') | Out-Null
@@ -522,31 +609,58 @@ finally
 	
 	Write-Verbose -Message "Exporting data tables to Excel spreadsheet tabs."
 	$strDomain = $DomainName.ToString().ToUpper()
-	$outputCSV = "{0}\{1}" -f $rptFolder, "$($strDomain)_OU_Structure_as_of_$(Get-ReportDate).csv"
-	$outputFile = "{0}\{1}" -f $rptFolder, "$($strDomain)_OU_Structure_as_of_$(Get-ReportDate).xlsx"
-	
-	$ExcelParams = @{
-		Path	        = $outputFile
-		StartRow    = 2
-		StartColumn = 1
-		AutoSize    = $true
-		AutoFilter  = $true
-		BoldTopRow  = $true
-		PassThru    = $true
+	$outputFile = "{0}\{1}" -f $rptFolder, "$($strDomain)_OU_Structure_as_of_$(Get-ReportDate).csv"
+	$xlOutput = $OutputFile.ToString().Replace([System.IO.Path]::GetExtension($OutputFile), ".xlsx")
+	$colResults | Export-Csv -Path $outputFile -NoTypeInformation
+	$wsName = "AD Organizational Units"
+	$xlParams = @{
+		Path	         = $xlOutput
+		WorkSheetName = $wsName
+		TableStyle    = 'Medium15'
+		StartRow	    = 2
+		StartColumn   = 1
+		AutoSize	    = $true
+		AutoFilter    = $true
+		BoldTopRow    = $true
+		PassThru	    = $true
 	}
 	
-	$setParams = @{
-		Wraptext		      = $true
-		VerticalAlignment    = 'Bottom'
+	$headerParams1 = @{
+		Bold			     = $true
+		VerticalAlignment   = 'Center'
+		HorizontalAlignment = 'Center'
+	}
+	
+	$headerParams2 = @{
+		Bold			     = $true
+		VerticalAlignment   = 'Center'
 		HorizontalAlignment = 'Left'
 	}
 	
-	$colResults | Export-Csv -Path $outputCSV -NoTypeInformation
-	$Excel = $colResults | Export-Excel @ExcelParams -WorkSheetname "AD Organizational Units" -PassThru
-	$Sheet = $Excel.Workbook.Worksheets["AD Organizational Units"]
-	$totalRows = $Sheet.Dimension.Rows
-	Set-ExcelRange -Range $Sheet.Cells["A2:Z$($totalRows)"] @setParams
-	Export-Excel -ExcelPackage $Excel -WorksheetName "AD Organizational Units" -FreezePane 3, 0 -Title "$($strDomain) Active Directory OU Configuration" -TitleFillPattern Solid -TitleSize 18 -TitleBackgroundColor LightBlue
+	$setParams = @{
+		VerticalAlignment   = 'Bottom'
+		HorizontalAlignment = 'Left'
+		ErrorAction         = 'SilentlyContinue'
+	}
+	
+	$titleParams = @{
+		FontColor         = 'White'
+		FontSize	        = 16
+		Bold		        = $true
+		BackgroundColor   = 'Black'
+		BackgroundPattern = 'Solid'
+	}
+	
+	$xl = $colResults | Export-Excel @xlParams
+	$Sheet = $xl.Workbook.Worksheets[$wsName]
+	$lastRow = $siteSheet.Dimension.End.Row
+	
+	Set-ExcelRange -Range $Sheet.Cells["A1"] -Value "$($strDomain) Active Directory OU Configuration" @titleParams
+	Set-ExcelRange -Range $Sheet.Cells["A2"] @headerParams1
+	Set-ExcelRange -Range $Sheet.Cells["B2:Z2"] @headerParams2
+	Set-ExcelRange -Range $Sheet.Cells["A3:I$($lastRow)"] @setParams
+	
+	Export-Excel -ExcelPackage $xl -WorksheetName $wsName -FreezePane 3, 0
 }
 
 #endregion

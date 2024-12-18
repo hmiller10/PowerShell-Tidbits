@@ -2,10 +2,6 @@
 #Requires -Version 5
 #Requires -RunAsAdministrator
 <#
-	.NOTES
-	THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE
-	RISK OF THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH
-	THE USER.
 
 	.SYNOPSIS
 		Create GPO report
@@ -29,20 +25,35 @@
 	.EXAMPLE
 	PS C:> .\Export-ActiveDirectoryDomainGPOs.ps1 -DomainName my.domain.com -Credential PSCredential
 
+	.NOTES
+		THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE
+		ENTIRE RISK OF THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS
+		WITH THE USER.
+	
 	.LINK
-		https://www.powershellgallery.com/packages/ImportExcel/
-		
+		https://github.com/dfinke/ImportExcel
+	
 	.LINK
 		https://www.powershellgallery.com/packages/HelperFunctions/
 #>
 
+###########################################################################
+#
+#
+# AUTHOR:  Heather Miller
+#
+# VERSION HISTORY: 5.0 - Reformatted Excel output to provide cleaner report
+# presentation
+# 
+############################################################################
 [CmdletBinding()]
 param
 (
 [Parameter(Mandatory = $false)]
 [ValidateNotNullOrEmpty()]
 [string[]]$DomainName,
-[Parameter(Mandatory = $false)]
+[Parameter(Mandatory = $false,
+		HelpMessage = 'Enter PS credential to connect to AD domain with.')]
 [ValidateNotNull()]
 [System.Management.Automation.PsCredential][System.Management.Automation.Credential()]
 $Credential = [System.Management.Automation.PSCredential]::Empty
@@ -52,7 +63,7 @@ $Credential = [System.Management.Automation.PSCredential]::Empty
 #Check if required module is loaded, if not load import it
 try
 {
-	Import-Module ActiveDirectory -ErrorAction Stop
+	Import-Module -Name ActiveDirectory -Force -ErrorAction Stop
 }
 catch
 {
@@ -455,18 +466,54 @@ function Get-TimeStamp
 $Error.Clear()
 try
 {
-	try
-	{
+	# Enable TLS 1.2 and 1.3
+	try {
 		#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
-		if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls12')
-		{
+		if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls12') {
 			Write-Verbose -Message 'Adding support for TLS 1.2'
 			[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls12
 		}
 	}
+	catch {
+		Write-Warning -Message 'Adding TLS 1.2 to supported security protocols was unsuccessful.'
+	}
+
+	try
+	{
+		$localComputer = Get-CimInstance -ClassName CIM_ComputerSystem -Namespace 'root\CIMv2' -ErrorAction Stop
+	}
 	catch
 	{
-		Write-Warning -Message 'Adding TLS 1.2 to supported security protocols was unsuccessful.'
+		$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+		Write-Error $errorMessage -ErrorAction Continue
+	}
+	   
+	if ($null -ne $localComputer.Name)   
+	{
+		if (($localComputer.Caption -match "Windows 11") -eq $true) {
+			try {
+				#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
+				if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls13') {
+					Write-Verbose -Message 'Adding support for TLS 1.3'
+					[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls13
+				}
+			}
+			catch {
+				Write-Warning -Message 'Adding TLS 1.3 to supported security protocols was unsuccessful.'
+			}
+		}
+		elseif (($localComputer.Caption -match "Server 2022") -eq $true) {
+			try {
+				#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
+				if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls13') {
+					Write-Verbose -Message 'Adding support for TLS 1.3'
+					[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls13
+				}
+			}
+			catch {
+				Write-Warning -Message 'Adding TLS 1.3 to supported security protocols was unsuccessful.'
+			}
+		}
 	}
 	
 	if ($null -eq ($PSBoundParameters["DomainName"]))
@@ -497,7 +544,6 @@ try
 		Write-Output ("Domains to query are: {0}" -f $Domain)
 		if ($Domain -ne ([System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().Name.ToString()))
 		{
-			$funcDef = "function Get-GPOInfo {${function:Get-GPOInfo}}"
 			$dcParams = @{
 				Domain = $Domain
 				ErrorAction = 'Stop'
@@ -523,8 +569,11 @@ try
 				$cmdParams.Add('Credential', $Credential)
 			}
 			
+			$getGpoInfoDef = "function Get-GpoInfo { ${function:Get-GpoInfo} }"
 			$domTable = Invoke-Command @cmdParams -ScriptBlock {
-				param ([hashtable]$Hash)
+				param ([hashtable]$Hash, $getGpoInfoDef)
+				
+				. ([ScriptBlock]::Create($getGpoInfoDef));
 				
 				try
 				{
@@ -559,7 +608,7 @@ try
 				if ($GPOs.Count -ge 1)
 				{
 					[psobject[]]$gpObjects = @()
-					. ([ScriptBlock]::Create($using:funcDef))
+
 					foreach ($gpo in $GPOs)
 					{
 						$currentGPO = Get-GPOInfo -DomainFQDN $domDNS -gpoGUID $gpo.ID
@@ -604,13 +653,10 @@ try
 				} #end if gpo count
 				
 				return $gpObjects
-			} -ArgumentList ([hashtable]$domainParams)
+			} -ArgumentList ([hashtable]$domainParams, $getGpoInfoDef)
 		}
 		else
 		{
-			#$domInfo = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()
-			#$DomainName = $domInfo.Name.ToString()
-			
 			try
 			{
 				$domainInfo = Get-ADDomain @domainParams | Select-Object -Property distinguishedName, DnsRoot, Name, pdcEmulator
@@ -627,7 +673,7 @@ try
 				$pdcFSMO = $domainInfo.pdcEmulator
 			}
 			
-			$domTblName = "Domain_GPO_Information"
+			$domTblName = "tblADDomainGpos"
 			$domHeaders = ConvertFrom-Csv -InputObject $domGpoHeadersCsv
 			
 			try
@@ -730,11 +776,11 @@ finally
 		
 		$ColToExport = $domHeaders.ColumnName
 		$outputFile = "{0}\{1}_Domain_GPO_Configuration.csv" -f $rptFolder, (Get-TimeStamp)
-		$domTable | Select-Object $ColToExport | Export-Csv -Path $outputFile -NoTypeInformation
+		$xlOutput = $OutputFile.ToString().Replace([System.IO.Path]::GetExtension($OutputFile), ".xlsx")
+		$domTable | Select-Object -Property $ColToExport -ExcludeProperty PSComputerName, RunspaceID, PSShowComputerName | Export-Csv -Path $outputFile -NoTypeInformation
 		$wsName = "AD Group Policies"
-		
 		$xlParams = @{
-			Path	         = $outputFile.ToString().Replace([System.IO.Path]::GetExtension($outputFile), ".xlsx")
+			Path	         = $xlOutput
 			WorkSheetName = $wsName
 			TableStyle    = 'Medium15'
 			StartRow	    = 2
@@ -745,12 +791,42 @@ finally
 			PassThru	    = $true
 		}
 		
-		$xl = $domTable | Select-Object $ColToExport | Export-Excel @xlParams
-		$Sheet = $xl.Workbook.Worksheets["AD Group Policies"]
-		Set-ExcelRange -Range $Sheet.Cells["A2:Z2"] -WrapText -HorizontalAlignment Center -VerticalAlignment Center -AutoFit
-		$cols = $Sheet.Dimension.Columns
-		Set-ExcelRange -Range $Sheet.Cells["A3:Z$($cols)"] -Wraptext -HorizontalAlignment Left -VerticalAlignment Bottom
-		Export-Excel -ExcelPackage $xl -WorksheetName "AD Group Policies" -FreezePane 3, 0 -Title "Active Directory Group Policy Configuration" -TitleBold -TitleSize 16
+		$headerParams1 = @{
+			Bold			     = $true
+			VerticalAlignment   = 'Center'
+			HorizontalAlignment = 'Center'
+		}
+		
+		$headerParams2 = @{
+			Bold			     = $true
+			VerticalAlignment   = 'Center'
+			HorizontalAlignment = 'Left'
+		}
+		
+		$setParams = @{
+			Wraptext		     = $true
+			VerticalAlignment   = 'Bottom'
+			HorizontalAlignment = 'Left'
+		}
+		
+		$titleParams = @{
+			FontColor         = 'White'
+			FontSize	        = 16
+			Bold		        = $true
+			BackgroundColor   = 'Black'
+			BackgroundPattern = 'Solid'
+		}
+		
+		$xl = $domTable |  Select-Object -Property $ColToExport -ExcludeProperty PSComputerName, RunspaceID, PSShowComputerName  | Export-Excel @xlParams
+		$Sheet = $xl.Workbook.Worksheets[$wsName]
+		$lastRow = $siteSheet.Dimension.End.Row
+	
+		Set-ExcelRange -Range $Sheet.Cells["A1"] -Value "Active Directory Domain Group Policy Configuration" @titleParams
+		Set-ExcelRange -Range $Sheet.Cells["A2"] @headerParams1
+		Set-ExcelRange -Range $Sheet.Cells["B2:Z2"] @headerParams2
+		Set-ExcelRange -Range $Sheet.Cells["A3:V$($lastRow)"] @setParams
+		
+		Export-Excel -ExcelPackage $xl -AutoSize -FreezePane 3, 0 -WorksheetName $wsName
 	}
 	
 }

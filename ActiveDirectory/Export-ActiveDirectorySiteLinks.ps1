@@ -31,8 +31,20 @@
 	
 	.LINK
 		https://github.com/dfinke/ImportExcel
+	
+	.LINK
+		https://www.powershellgallery.com/packages/HelperFunctions/
 #>
 
+###########################################################################
+#
+#
+# AUTHOR:  Heather Miller
+#
+# VERSION HISTORY: 5.0 - Reformatted Excel output to provide cleaner report
+# presentation
+# 
+############################################################################
 [CmdletBinding()]
 param
 (
@@ -42,10 +54,16 @@ param
 	[string[]]
 	$ForestName,
 	[Parameter(Position = 1,
-	           HelpMessage = 'Enter PS credential to connecct to AD forest with.')]
+	           HelpMessage = 'Enter credential for remote forest.')]
+	[ValidateNotNull()]
+	[System.Management.Automation.PsCredential][System.Management.Automation.Credential()]
+	$Credential = [System.Management.Automation.PSCredential]::Empty,
+	[Parameter(Mandatory = $true,
+		HelpMessage = 'Specify the file output format you desire.')]
+	[ValidateSet('CSV', 'Excel', IgnoreCase = $true)]
 	[ValidateNotNullOrEmpty()]
-	[pscredential]
-	$Credential
+	[string]
+	$OutputFormat
 )
 
 #Region Execution Policy
@@ -56,7 +74,7 @@ param
 #Check if required module is loaded, if not load import it
 try
 {
-	Import-Module -SkipEditionCheck ActiveDirectory -ErrorAction Stop
+	Import-Module -Name ActiveDirectory -Force -ErrorAction Stop
 }
 catch
 {
@@ -136,22 +154,63 @@ $dtmFileFormatString = "yyyy-MM-dd_HH-mm-ss"
 
 
 
+
+
 #Region Script
 $Error.Clear()
 try
 {
+	# Enable TLS 1.2 and 1.3
 	try
 	{
 		#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
 		if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls12')
 		{
-		    Write-Verbose -Message 'Adding support for TLS 1.2'
-		    [Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls12
+			Write-Verbose -Message 'Adding support for TLS 1.2'
+			[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls12
 		}
 	}
 	catch
 	{
 		Write-Warning -Message 'Adding TLS 1.2 to supported security protocols was unsuccessful.'
+	}
+	
+	try
+	{
+		$localComputer = Get-CimInstance -ClassName CIM_ComputerSystem -Namespace 'root\CIMv2' -ErrorAction Stop
+	}
+	catch
+	{
+		$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+		Write-Error $errorMessage -ErrorAction Continue
+	}
+	   
+	if ($null -ne $localComputer.Name)   
+	{
+		if (($localComputer.Caption -match "Windows 11") -eq $true) {
+			try {
+				#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
+				if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls13') {
+					Write-Verbose -Message 'Adding support for TLS 1.3'
+					[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls13
+				}
+			}
+			catch {
+				Write-Warning -Message 'Adding TLS 1.3 to supported security protocols was unsuccessful.'
+			}
+		}
+		elseif (($localComputer.Caption -match "Server 2022") -eq $true) {
+			try {
+				#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
+				if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls13') {
+					Write-Verbose -Message 'Adding support for TLS 1.3'
+					[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls13
+				}
+			}
+			catch {
+				Write-Warning -Message 'Adding TLS 1.3 to supported security protocols was unsuccessful.'
+			}
+		}
 	}
 	
 	$ForestParams = @{
@@ -160,9 +219,7 @@ try
 		
 	if (($PSBoundParameters.ContainsKey('ForestName')) -and ($null -ne $PSBoundParameters["ForestName"]))
 	{
-		$ForestParams.Add('Identity', $Forest)
-		$ForestParams.Add('Server', $Forest)
-       
+		$ForestName = $ForestName -split (",")
 	}
 	else
 	{
@@ -193,7 +250,7 @@ try
 			Write-Error $errorMessage -ErrorAction Continue
 		}
 		
-		$DSForestName = $DSForest.Name
+		$DSForestName = $DSForest.Name.ToString().ToUpper()
 		$schemaMaster = $DSForest.schemaMaster
 		
 		#Create data table and add columns
@@ -238,7 +295,14 @@ try
 			$siteLinkTransportProtocol = [string]$_.InterSiteTransportProtocol
 			$siteLinkCost = [string]$_.Cost
 			$siteLinkFreq = $_.ReplicationFrequencyInMinutes
-			$sitesIncluded = [string]($_.SitesIncluded -join ";")
+			if ($PSBoundParameters.ContainsValue('Excel'))
+			{
+				$sitesIncluded = [string]($_.SitesIncluded -join "`n")
+			}
+			elseif ($PSBoundParameters.ContainsValue('CSV'))
+			{
+				$sitesIncluded = [string]($_.SitesIncluded -join ";")
+			}
 			
 			$slRow = $dtSL.NewRow()
 			$slRow."Forest Name" = $DSForestName
@@ -255,53 +319,83 @@ try
 			[System.GC]::GetTotalMemory('ForceFullCollection') | Out-Null
 			
 		})
+		
+		#Save output
+		$driveRoot = (Get-Location).Drive.Root
+		$rptFolder = "{0}{1}" -f $driveRoot, "Reports"
+		
+		Test-PathExists -Path $rptFolder -PathType Folder
+		
+		$colToExport = $dtSLHeaders.ColumnName
+		
+		if ($dtSL.Rows.Count -gt 1)
+		{
+			Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f (Get-UTCTime).ToString($dtmFormatString))
+			$outputFile = "{0}\{1}-{2}_Active_Directory_SiteLink_Info.csv" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $DSForestName
+			$xlOutput = $OutputFile.ToString().Replace([System.IO.Path]::GetExtension($OutputFile), ".xlsx")
+			$dtSL | Select-Object $colToExport | Export-Csv -Path $outputFile -NoTypeInformation
+			
+			Write-Verbose ("[{0} UTC] Exporting results data in Excel format, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
+			$wsName = "AD Site-Link Configuration"
+			$xlParams = @{
+				Path	         = $xlOutput
+				WorkSheetName = $wsName
+				TableStyle    = 'Medium15'
+				StartRow	    = 2
+				StartColumn   = 1
+				AutoSize	    = $true
+				AutoFilter    = $true
+				BoldTopRow    = $true
+				PassThru	    = $true
+			}
+			
+			$headerParams1 = @{
+				Bold			     = $true
+				VerticalAlignment   = 'Center'
+				HorizontalAlignment = 'Center'
+			}
+			
+			$headerParams2 = @{
+				Bold			     = $true
+				VerticalAlignment   = 'Center'
+				HorizontalAlignment = 'Left'
+			}
+			
+			$setParams = @{
+				WrapText            = $true
+				VerticalAlignment   = 'Bottom'
+				HorizontalAlignment = 'Left'
+			}
+			
+			$titleParams = @{
+				FontColor         = 'White'
+				FontSize	        = 16
+				Bold		        = $true
+				BackgroundColor   = 'Black'
+				BackgroundPattern = 'Solid'
+			}
+			
+			$xl = $dtSL | Select-Object $colToExport | Sort-Object -Property "Site Link Name" | Export-Excel @xlParams
+			$Sheet = $xl.Workbook.Worksheets[$wsName]
+			$lastRow = $siteSheet.Dimension.End.Row
+			
+			Set-ExcelRange -Range $Sheet.Cells["A1"] -Value "$($DSForestName) Active Directory Site-Link Configuration" @titleParams
+			Set-ExcelRange -Range $Sheet.Cells["A2"] @headerParams1
+			Set-ExcelRange -Range $Sheet.Cells["B2:Z2"] @headerParams2
+			Set-ExcelRange -Range $Sheet.Cells["A3:G$($lastRow)"] @setParams
+			
+			Export-Excel -ExcelPackage $xl -AutoSize -FreezePane 3, 0 -WorksheetName $wsName
+		}
+		else
+		{
+			Write-Warning -Message ("There are no Active Directory site links present in: {0}" -f $DSForestName)
+		}
 	}
-	#EndRegion
 }
 catch
 {
 	$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
 	Write-Error $errorMessage -ErrorAction Continue
-}
-finally
-{
-	#Save output
-	
-	$driveRoot = (Get-Location).Drive.Root
-	$rptFolder = "{0}{1}" -f $driveRoot, "Reports"
-	
-	Test-PathExists -Path $rptFolder -PathType Folder
-	
-	$colToExport = $dtSLHeaders.ColumnName
-	
-	if ($dtSL.Rows.Count -gt 1)
-	{
-		Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f (Get-UTCTime).ToString($dtmFormatString))
-		$outputFile = "{0}\{1}-{2}_Active_Directory_SiteLink_Info.csv" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $DSForestName
-		$dtSL | Select-Object $colToExport | Export-Csv -Path $outputFile -NoTypeInformation
-		
-		Write-Verbose ("[{0} UTC] Exporting results data in Excel format, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
-		$wsName = "AD SiteLink Configuration"
-		$xlParams = @{
-			Path	        = $outputFile.ToString().Replace([System.IO.Path]::GetExtension($outputFile), ".xlsx")
-			WorkSheetName = $wsName
-			TableStyle    = 'Medium15'
-			StartRow	    = 2
-			StartColumn   = 1
-			AutoSize	    = $true
-			AutoFilter    = $true
-			BoldTopRow    = $true
-			PassThru	    = $true
-		}
-		
-		$xl = $dtSL | Select-Object $colToExport | Sort-Object -Property "Site Link Name" | Export-Excel @xlParams
-		$Sheet = $xl.Workbook.Worksheets["AD SiteLink Configuration"]
-		Set-ExcelRange -Range $Sheet.Cells["A2:Z2"] -WrapText -HorizontalAlignment Center -VerticalAlignment Center -AutoFit
-		$cols = $Sheet.Dimension.Columns
-		Set-ExcelRange -Range $Sheet.Cells["A3:Z$($cols)"] -Wraptext -HorizontalAlignment Left -VerticalAlignment Bottom
-		Export-Excel -ExcelPackage $xl -WorksheetName $wsName -FreezePane 3, 0 -Title "$($DSForestName) Active Directory Site-Link Configuration" -TitleBold -TitleSize 16
-	}
-	
 }
 
 #EndRegion

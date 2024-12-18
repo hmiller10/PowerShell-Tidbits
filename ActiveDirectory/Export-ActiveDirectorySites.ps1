@@ -9,9 +9,18 @@
 		This script is desigend to gather and report information on all Active Directory sites
 		in a given forest.
 	
+	.PARAMETER ForestName
+		Enter AD forest name to gather info. on.
+	
+	.PARAMETER Credential
+		Enter PS credential to connecct to AD forest with.
+	
+	.PARAMETER OutputFormat
+		A description of the OutputFormat parameter.
+	
 	.EXAMPLE
 		.\Export-ActiveDirectorySiteInfo.ps1
-		
+	
 	.EXAMPLE
 		.\Export-ActiveDirectorySiteInfo.ps1 -ForestName myForest.com -Credential (Get-Credential)
 	
@@ -25,19 +34,21 @@
 	
 	.LINK
 		https://github.com/dfinke/ImportExcel
-		
+	
 	.LINK
 		https://www.powershellgallery.com/packages/HelperFunctions/
 #>
+
 ###########################################################################
 #
 #
 # AUTHOR:  Heather Miller
 #
-# VERSION HISTORY: 7.0 added error handling and credential support
+# VERSION HISTORY: 5.0 - Reformatted Excel output to provide cleaner report
+# presentation
 # 
-###########################################################################
-
+############################################################################
+[CmdletBinding()]
 param
 (
 	[Parameter(Position = 0,
@@ -45,27 +56,26 @@ param
 	[ValidateNotNullOrEmpty()]
 	[string]$ForestName,
 	[Parameter(Position = 1,
-			 HelpMessage = 'Enter PS credential to connecct to AD forest with.')]
+			 HelpMessage = 'Enter credential for remote forest.')]
 	[ValidateNotNull()]
-	[System.Management.Automation.PsCredential]
-	[System.Management.Automation.Credential()]
+	[System.Management.Automation.PsCredential][System.Management.Automation.Credential()]
 	$Credential = [System.Management.Automation.PSCredential]::Empty,
 	[Parameter(Mandatory = $true,
 			 Position = 2)]
-	[ValidateSet('CSV', 'Excel', IgnoreCase = $true)]
 	[ValidateNotNullOrEmpty()]
+	[ValidateSet('CSV', 'Excel', IgnoreCase = $true)]
 	[string]$OutputFormat
 )
 
 #Region Execution Policy
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned
+#Set-ExecutionPolicy -ExecutionPolicy RemoteSigned
 #EndRegion
 
 #Region Modules
 #Check if required module is loaded, if not load import it
 try
 {
-	Import-Module ActiveDirectory -SkipEditionCheck -ErrorAction Stop
+	Import-Module -Name ActiveDirectory -Force -ErrorAction Stop
 }
 catch
 {
@@ -113,7 +123,7 @@ catch
 
 try
 {
-	Import-Module -Name ImportExcel -Force  -ErrorAction Stop
+	Import-Module -Name ImportExcel -Force -ErrorAction Stop
 }
 catch
 {
@@ -136,7 +146,7 @@ catch
 #EndRegion
 
 #Region Global Variables
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
 $gpoNames = @()
 $Sites = @()
 $dtSiteHeadersCSV =
@@ -163,7 +173,7 @@ $dtmFileFormatString = "yyyy-MM-dd_HH-mm-ss"
 function Get-GPSiteLink
 {
 	[CmdletBinding()]
-	Param
+	param
 	(
 		[Parameter(Position = 0, ValueFromPipeline = $True)]
 		[string]$SiteName = "Default-First-Site-Name",
@@ -173,7 +183,7 @@ function Get-GPSiteLink
 		[string]$Forest = "MyForest.com"
 	)
 	
-	Begin
+	begin
 	{
 		Write-Verbose "Starting Function"
 		#define the permission constants hash table
@@ -203,9 +213,9 @@ function Get-GPSiteLink
 		$gpmConstants = $gpm.GetConstants()
 		$gpmDomain = $gpm.GetDomain($domain, "", $gpmConstants.UseAnyDC)
 	} #Begin
-	Process
+	process
 	{
-		ForEach ($item in $siteName)
+		foreach ($item in $siteName)
 		{
 			#connect to site container
 			$SiteContainer = $gpm.GetSitesContainer($forest, $domain, $null, $gpmConstants.UseAnyDC)
@@ -222,13 +232,13 @@ function Get-GPSiteLink
 					#add the GPO name
 					Write-Verbose ("Found {0} GPO links" -f ($links | measure-object).count)
 					$links | Select-Object @{ Name = "Name"; Expression = { ($gpmDomain.GetGPO($_.GPOID)).DisplayName } },
-								 @{ Name = "Description"; Expression = { ($gpmDomain.GetGPO($_.GPOID)).Description } }, GPOID, Enabled, Enforced, GPODomain, SOMLinkOrder, @{ Name = "SOM"; Expression = { $_.SOM.Path } }
+									   @{ Name = "Description"; Expression = { ($gpmDomain.GetGPO($_.GPOID)).Description } }, GPOID, Enabled, Enforced, GPODomain, SOMLinkOrder, @{ Name = "SOM"; Expression = { $_.SOM.Path } }
 				} #if $links
 			} #if $site
 		} #foreach site  
 		
 	} #process
-	End
+	end
 	{
 		Write-Verbose "Finished"
 	} #end
@@ -296,11 +306,68 @@ function Get-Forest
 
 #EndRegion
 
+
+
+
+
+
 #Region Script
 $Error.Clear()
 try
 {
-
+	# Enable TLS 1.2 and 1.3
+	try
+	{
+		#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
+		if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls12')
+		{
+			Write-Verbose -Message 'Adding support for TLS 1.2'
+			[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls12
+		}
+	}
+	catch
+	{
+		Write-Warning -Message 'Adding TLS 1.2 to supported security protocols was unsuccessful.'
+	}
+	
+	try
+	{
+		$localComputer = Get-CimInstance -ClassName CIM_ComputerSystem -Namespace 'root\CIMv2' -ErrorAction Stop
+	}
+	catch
+	{
+		$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+		Write-Error $errorMessage -ErrorAction Continue
+	}
+	   
+	if ($null -ne $localComputer.Name)   
+	{
+		if (($localComputer.Caption -match "Windows 11") -eq $true) {
+			try {
+				#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
+				if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls13') {
+					Write-Verbose -Message 'Adding support for TLS 1.3'
+					[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls13
+				}
+			}
+			catch {
+				Write-Warning -Message 'Adding TLS 1.3 to supported security protocols was unsuccessful.'
+			}
+		}
+		elseif (($localComputer.Caption -match "Server 2022") -eq $true) {
+			try {
+				#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
+				if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls13') {
+					Write-Verbose -Message 'Adding support for TLS 1.3'
+					[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls13
+				}
+			}
+			catch {
+				Write-Warning -Message 'Adding TLS 1.3 to supported security protocols was unsuccessful.'
+			}
+		}
+	}
+	
 	#Region SiteConfig
 	if ($PSBoundParameters.ContainsKey('ForestName'))
 	{
@@ -349,7 +416,7 @@ try
 	}
 	
 	#Create data table and add columns
-	$sitesTblName = "$($DSForestName)_AD_Sites"
+	$sitesTblName = "tbl$($DSForestName)ADSites"
 	$dtSiteHeaders = ConvertFrom-Csv -InputObject $dtSiteHeadersCsv
 	try
 	{
@@ -365,49 +432,57 @@ try
 	$sitesCount = 1
 	foreach ($Site in $Sites)
 	{
-		Write-Verbose -Message "Working on AD site $($Site.Name)..." -Verbose
+		Write-Verbose -Message "Working on AD site $($Site.Name)..."
 		$SiteName = [String]$Site.Name
+		$SiteLocation = [String]($Site).Location
 		$sitesActivityMessage = "Gathering AD site information, please wait..."
 		$sitesProcessingStatus = "Processing site {0} of {1}: {2}" -f $sitesCount, $Sites.count, $SiteName.ToString()
 		$percentSitesComplete = ($sitesCount / $Sites.count * 100)
 		Write-Progress -Activity $sitesActivityMessage -Status $sitesProcessingStatus -PercentComplete $percentSitesComplete -Id 1
 		
-		switch ($PSBoundParameters["OutputFormat"])
+		if ($PSBoundParameters.ContainsValue("CSV"))
 		{
-			"CSV" {
-				$SCSubnets = [String]($Site.Subnets -join " ")
-				$SiteLinks = [String]($Site.SiteLinks -join " ")
-				$AdjacentSites = [String]($Site.AdjacentSites -join " ")
-				$SiteDomains = [String]($Site.Domains -join " ")
-				$SiteServers = [String]($Site.Servers -join " ")
-				$BridgeHeads = [String]($Site.BridgeHeadServers -join " ")
-			}
-			"Excel" {
-				$SCSubnets = [String]($Site.Subnets -join "`n")
-				$SiteLinks = [String]($Site.SiteLinks -join "`n")
-				$AdjacentSites = [String]($Site.AdjacentSites -join "`n")
-				$SiteDomains = [String]($Site.Domains -join "`n")
-				$SiteServers = [String]($Site.Servers -join "`n")
-				$BridgeHeads = [String]($Site.BridgeHeadServers -join "`n")
-			}
+			$SiteSubnets = [String]($Site.Subnets -join " ")
+			$SiteLinks = [String]($Site.SiteLinks -join " ")
+			$AdjacentSites = [String]($Site.AdjacentSites -join " ")
+			$SiteDomains = [String]($Site.Domains -join " ")
+			$SiteServers = [String]($Site.Servers.Name -join " ")
+			$BridgeHeads = [String]($Site.BridgeHeadServers -join " ")
 		}
+		elseif ($PSBoundParameters.ContainsValue("Excel"))
+		{
+			$SiteSubnets = [String]($Site.Subnets -join "`n")
+			$SiteLinks = [String]($Site.SiteLinks -join "`n")
+			$AdjacentSites = [String]($Site.AdjacentSites -join "`n")
+			$SiteDomains = [String]($Site.Domains -join "`n")
+			$SiteServers = [String]($Site.Servers.Name -join "`n")
+			$BridgeHeads = [String]($Site.BridgeHeadServers -join "`n")
+		}
+		
 		
 		try
 		{
-			$adSite = Get-ADObject -Filter '(objectClass -eq "site") -and (Name -eq $SiteName)' -SearchBase "CN=Sites,$($rootCNC)" -SearchScope OneLevel -Properties $adSiteProps -ErrorAction SilentlyContinue | Select-Object -Property $adSiteProps
+			if (($PSBoundParameters.ContainsKey('Credential')) -and ($null -ne $PSBoundParameters["Credential"]))
+			{
+				$adSite = Get-ADObject -Filter '(objectClass -eq "site") -and (Name -eq $SiteName)' -SearchBase "CN=Sites,$($rootCNC)" -SearchScope OneLevel -ResultSetSize $null -Properties $adSiteProps -Server $schemaFSMO -AuthType Negotiate -Credential $Credential -ErrorAction SilentlyContinue | Select-Object -Property $adSiteProps
+			}
+			else
+			{
+				$adSite = Get-ADObject -Filter '(objectClass -eq "site") -and (Name -eq $SiteName)' -SearchBase "CN=Sites,$($rootCNC)" -SearchScope OneLevel -ResultSetSize $null -Properties $adSiteProps -Server $schemaFSMO -ErrorAction SilentlyContinue | Select-Object -Property $adSiteProps
+			}
 		}
 		catch
 		{
 			$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
 			Write-Error $errorMessage -ErrorAction Continue
 		}
-
-		$gpoNames = @()
+		
+		$siteGpoNames = @()
 		$siteGPOS = @()
 		
-		If ($null -ne $adSite.gpLink)
+		if ($null -ne $adSite.gpLink)
 		{
-			ForEach ($siteDomain in $site.Domains)
+			foreach ($siteDomain in $site.Domains)
 			{
 				$siteGPOS += Get-GPSiteLink -SiteName $SiteName -Domain $siteDomain -Forest $DSForest.Name.ToString()
 			}
@@ -420,64 +495,86 @@ try
 					$gpoDom = ($siteGPO).GPODomain
 					try
 					{
-						$gpoInfo = Get-GPO -Guid $id -Domain $gpoDom -Server $gpoDom -ErrorAction Stop
+						if ($DSForestName -eq (Get-ADForest -Current LocalComputer).Name)
+						{
+							$gpoInfo = Get-GPO -Guid $id -Domain $gpoDom -Server $gpoDom -ErrorAction Stop
+						}
+						else
+						{
+							if (($PSBoundParameters.ContainsKey('Credential')) -and ($null -ne $PSBoundParameters["Credential"]))
+							{
+								$gpoInfo = Invoke-Command -ComputerName $schemaFSMO -Credential $Credential -Authentication Negotiate -ScriptBlock { Get-GPO -Guid $using:id -Domain $using:gpoDom -Server $using:gpoDom -ErrorAction Stop }
+							}
+							else
+							{
+								$gpoInfo = Invoke-Command -ComputerName $schemaFSMO -ScriptBlock { Get-GPO -Guid $using:id -Domain $using:gpoDom -Server $using:gpoDom -ErrorAction Stop }
+							}
+						}
+						
 					}
 					catch
 					{
+						Write-Output $Site.Name
+						Write-Output $id
+						Write-Output $gpoDom
 						$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
 						Write-Error $errorMessage -ErrorAction Continue
 					}
 					
-					if ($null -ne $gpoInfo.DisplayName)
+					if ([String]::IsNullOrEmpty($gpoInfo.DisplayName) -eq $false)
 					{
-						$gpoName = $gpoInfo.DisplayName.ToString()
-						$gpoNames += $gpoName
+						$gpoName = $gpoInfo.DisplayName
+						$siteGpoNames += $gpoName
+					}
+					else
+					{
+						$siteGpoNames += "None"
 					}
 					
-					
-					$siteGPO = $id = $gpoDom = $gpoInfo = $gpoName = $null
+					$null = $siteGPO = $id = $gpoDom = $gpoInfo = $gpoName
 				}
 			}
 			else
 			{
-				$gpoNames = "None."
+				$siteGpoNames = "None."
 			}
 			
 		}
 		elseif ($null -eq $adSite.gpLink)
 		{
-			$gpoNames = "None."
+			$siteGpoNames = "None."
 		}
-		$gpoNames = $gpoNames | Select-Object -Unique
+		
+		$siteGpoNames = $siteGpoNames | Select-Object -Unique
 		
 		$siteRow = $dtSites.NewRow()
-		$siteRow."Site Name" = $SiteName | Out-String
-		$siteRow."Site Location" = $SiteLocation | Out-String
-		$siteRow."Site Links" = $SiteLinks | Out-String
-		$siteRow."Adjacent Sites" = $AdjacentSites | Out-String
-		$siteRow."Subnets in Site" = $SCSubnets | Out-String
-		$siteRow."Domains in Site" = $SiteDomains | Out-String
-		$siteRow."Servers in Site" = $SiteServers | Out-String
-		$siteRow."Bridgehead Servers" = $BridgeHeads | Out-String
-		switch ($PSBoundParameters["OutputFormat"])
+		$siteRow."Site Name" = $SiteName
+		$siteRow."Site Location" = $SiteLocation
+		$siteRow."Site Links" = $SiteLinks
+		$siteRow."Adjacent Sites" = $AdjacentSites
+		$siteRow."Subnets in Site" = $SiteSubnets
+		$siteRow."Domains in Site" = $SiteDomains
+		$siteRow."Servers in Site" = $SiteServers
+		$siteRow."Bridgehead Servers" = $BridgeHeads
+		if (($PSBoundParameters.ContainsKey('OutputFormat')) -and ($PSBoundParameters.ContainsValue("CSV")))
 		{
-			"CSV" {
-				$siteRow."GPOs linked to Site" = $gpoNames -join " " | Out-String
-			}
-			"Excel" {
-				$siteRow."GPOs linked to Site" = $gpoNames -join "`n" | Out-String
-			}
+			$siteRow."GPOs linked to Site" = $siteGpoNames -join " " | Out-String
 		}
+		elseif (($PSBoundParameters.ContainsKey('OutputFormat')) -and ($PSBoundParameters.ContainsValue("Excel")))
+		{
+			$siteRow."GPOs linked to Site" = $siteGpoNames -join "`n" | Out-String
+		}
+		
 		$siteRow."Notes" = $null | Out-String
 		
 		$dtSites.Rows.Add($siteRow)
 		
-		$Site = $SiteLocation = $siteGPOS = $SiteLinks = $SiteName = $SCSubnets = $AdjacentSites = $SiteDomains = $SiteServers = $BridgeHeads = $null
-		$adSite = $gpoNames = $null
+		$null = $Site = $SiteLocation = $siteGPOS = $SiteLinks = $SiteName = $SiteSubnets = $AdjacentSites = $SiteDomains = $SiteServers = $BridgeHeads
+		$null = $adSite = $SiteGpoNames
 		[GC]::Collect()
 		$sitesCount++
 	}
-
+	
 	Write-Progress -Activity "Done gathering AD site information for $($DSForestName)" -Status "Ready" -Completed
 	
 	#EndRegion
@@ -495,39 +592,71 @@ finally
 	$rptFolder = "{0}{1}" -f $driveRoot, "Reports"
 	
 	Test-PathExists -Path $rptFolder -PathType Folder
-
+	
 	if ($dtSites.Rows.Count -gt 1)
 	{
 		$colToExport = $dtSiteHeaders.ColumnName
+		$outputFile = "{0}\{1}_{2}_Active_Directory_Site_Info.csv" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $DSForestName
 		
 		switch ($PSBoundParameters["OutputFormat"])
 		{
 			"CSV" {
 				Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f (Get-UTCTime).ToString($dtmFormatString))
-				$outputFile = "{0}\{1}_{2}_Active_Directory_Site_Info.csv" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $DSForestName
 				$dtSites | Select-Object $colToExport | Export-Csv -Path $outputFile -NoTypeInformation
 			}
 			"Excel" {
 				Write-Verbose -Message ("[{0} UTC] Exporting data tables to Excel spreadsheet tabs." -f (Get-UTCTime).ToString($dtmFormatString))
+				$xlOutput = $OutputFile.ToString().Replace([System.IO.Path]::GetExtension($OutputFile), ".xlsx")
 				$wsName = "AD Site Configuration"
 				$xlParams = @{
-					Path	        = $outputFile = "{0}\{1}_{2}_Active_Directory_Site_Info.xlsx" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $DSForestName
+					Path	         = $xlOutput
 					WorkSheetName = $wsName
-					TableStyle = 'Medium15'
-					StartRow     = 2
-					StartColumn  = 1
-					AutoSize   = $true
-					AutoFilter   = $true
-					BoldTopRow   = $true
-					PassThru = $true
+					TableStyle    = 'Medium15'
+					StartRow	    = 2
+					StartColumn   = 1
+					AutoSize	    = $true
+					AutoFilter    = $true
+					BoldTopRow    = $true
+					PassThru	    = $true
+				}
+				
+				$headerParams1 = @{
+					Bold			     = $true
+					VerticalAlignment   = 'Center'
+					HorizontalAlignment = 'Center'
+				}
+				
+				$headerParams2 = @{
+					Bold			     = $true
+					VerticalAlignment   = 'Center'
+					HorizontalAlignment = 'Left'
+				}
+				
+				$setParams = @{
+					WrapText            = $true
+					VerticalAlignment   = 'Bottom'
+					HorizontalAlignment = 'Left'
+				}
+				
+				$titleParams = @{
+					FontColor	        = 'White'
+					FontSize	        = 16
+					Bold		        = $true
+					BackgroundColor   = 'Black'
+					BackgroundPattern = 'Solid'
 				}
 				
 				$xl = $dtSites | Select-Object $colToExport | Sort-Object -Property "Site Name" | Export-Excel @xlParams
-				$Sheet = $xl.Workbook.Worksheets["AD Site Configuration"]
-                	Set-ExcelRange -Range $Sheet.Cells["A2:Z2"] -WrapText -HorizontalAlignment Center -VerticalAlignment Center -AutoFit
-                	$cols = $Sheet.Dimension.Columns				
-                	Set-ExcelRange -Range $Sheet.Cells["A3:Z$($cols)"] -Wraptext -HorizontalAlignment Left -VerticalAlignment Bottom
-				Export-Excel -ExcelPackage $xl -WorksheetName $wsName -FreezePane 3, 0 -Title "$($DSForestName.ToUpper()) Active Directory Site Configuration" -TitleBold -TitleSize 16
+				$Sheet = $xl.Workbook.Worksheets[$wsName]
+				$Sheet.Cells["A1"].Value = 
+				$lastRow = $siteSheet.Dimension.End.Row
+				
+				Set-ExcelRange -Range $Sheet.Cells["A1"] -Value "$($DSForestName) Active Directory Site(s) Configuration" @titleParams
+				Set-ExcelRange -Range $Sheet.Cells["A2"] @headerParams1
+				Set-ExcelRange -Range $Sheet.Cells["B2:Z2"] @headerParams2
+				Set-ExcelRange -Range $Sheet.Cells["A3:J$($lastRow)"] @setParams
+				
+				Export-Excel -ExcelPackage $xl -AutoSize -FreezePane 3, 0 -WorksheetName $wsName
 			}
 		} #end Switch
 	} #end if $dtSites

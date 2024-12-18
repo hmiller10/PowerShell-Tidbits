@@ -30,13 +30,21 @@
 		WITH THE USER.
 	
 	.LINK
-		https://www.powershellgallery.com/packages/ImportExcel/
-		
+		https://github.com/dfinke/ImportExcel
+	
 	.LINK
 		https://www.powershellgallery.com/packages/HelperFunctions/
-		
 #>
 
+###########################################################################
+#
+#
+# AUTHOR:  Heather Miller
+#
+# VERSION HISTORY: 5.0 - Reformatted Excel output to provide cleaner report
+# presentation
+# 
+############################################################################
 [CmdletBinding()]
 param
 (
@@ -49,7 +57,13 @@ param
 	[ValidateNotNull()]
 	[System.Management.Automation.PsCredential]
 	[System.Management.Automation.Credential()]
-	$Credential = [System.Management.Automation.PSCredential]::Empty
+	$Credential = [System.Management.Automation.PSCredential]::Empty,
+	[Parameter(Mandatory = $true,
+		HelpMessage = 'Specify the file output format you desire.')]
+	[ValidateSet('CSV', 'Excel', IgnoreCase = $true)]
+	[ValidateNotNullOrEmpty()]
+	[string]
+	$OutputFormat
 )
 
 #Region Execution Policy
@@ -58,19 +72,19 @@ param
 
 #Region Modules
 #Check if required module is loaded, if not load import it
-Try 
+try
 {
-	Import-Module ActiveDirectory -ErrorAction Stop
+	Import-Module -Name ActiveDirectory -Force -ErrorAction Stop
 }
-Catch
+catch
 {
-	Try
+	try
 	{
-	    Import-Module C:\Windows\System32\WindowsPowerShell\v1.0\Modules\ActiveDirectory\ActiveDirectory.psd1 -ErrorAction Stop
+		Import-Module C:\Windows\System32\WindowsPowerShell\v1.0\Modules\ActiveDirectory\ActiveDirectory.psd1 -ErrorAction Stop
 	}
-	Catch
+	catch
 	{
-	   Throw "Active Directory module could not be loaded. $($_.Exception.Message)"
+		throw "Active Directory module could not be loaded. $($_.Exception.Message)"
 	}
 	
 }
@@ -146,18 +160,57 @@ $dtmFileFormatString = "yyyy-MM-dd_HH-mm-ss"
 $Error.Clear()
 try
 {
+	# Enable TLS 1.2 and 1.3
 	try
 	{
 		#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
 		if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls12')
 		{
-		    Write-Verbose -Message 'Adding support for TLS 1.2'
-		    [Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls12
+			Write-Verbose -Message 'Adding support for TLS 1.2'
+			[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls12
 		}
 	}
 	catch
 	{
 		Write-Warning -Message 'Adding TLS 1.2 to supported security protocols was unsuccessful.'
+	}
+	
+	try
+	{
+		$localComputer = Get-CimInstance -ClassName CIM_ComputerSystem -Namespace 'root\CIMv2' -ErrorAction Stop
+	}
+	catch
+	{
+		$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+		Write-Error $errorMessage -ErrorAction Continue
+	}
+	   
+	if ($null -ne $localComputer.Name)   
+	{
+		if (($localComputer.Caption -match "Windows 11") -eq $true) {
+			try {
+				#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
+				if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls13') {
+					Write-Verbose -Message 'Adding support for TLS 1.3'
+					[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls13
+				}
+			}
+			catch {
+				Write-Warning -Message 'Adding TLS 1.3 to supported security protocols was unsuccessful.'
+			}
+		}
+		elseif (($localComputer.Caption -match "Server 2022") -eq $true) {
+			try {
+				#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
+				if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls13') {
+					Write-Verbose -Message 'Adding support for TLS 1.3'
+					[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls13
+				}
+			}
+			catch {
+				Write-Warning -Message 'Adding TLS 1.3 to supported security protocols was unsuccessful.'
+			}
+		}
 	}
 
 	$ForestParams = @{
@@ -232,7 +285,15 @@ try
 	$SiteLinkBridges.ForEach({
 		$slbName = [String]$_.Name
 		$slbDN = [String]$_.distinguishedName
-		$slbLinksIncluded = [String]($_.SiteLinksIncluded -join "`n")
+		if ($PSBoundParameters.ContainsValue('Excel'))
+		{
+			$slbLinksIncluded = [String]($_.SiteLinksIncluded -join "`n")
+		}
+		elseif ($PSBoundParameters.ContainsValue('CSV'))
+		{
+			$slbLinksIncluded = [String]($_.SiteLinksIncluded -join ";")
+		}
+		
 		$slbProtocol = [string]$_.IntersiteTransportProtocol
 
 		$slbRow = $dtSLB.NewRow()
@@ -271,13 +332,13 @@ finally
 	{
 		Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f (Get-UTCTime).ToString($dtmFormatString))
 		$outputFile = "{0}\{1}-{2}_Active_Directory_Site_Link_Bridge_Info.csv" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $DSForestName
+		$xlOutput = $OutputFile.ToString().Replace([System.IO.Path]::GetExtension($OutputFile), ".xlsx")
 		$dtSLB | Select-Object $colToExport | Export-Csv -Path $outputFile -NoTypeInformation
 		
 		Write-Verbose ("[{0} UTC] Exporting results data in Excel format, please wait..." -f (Get-UTCTime).ToString($dtmFormatString))
 		$wsName = "AD Site-Link Bridge Config"
-		
 		$xlParams = @{
-			Path	        = $outputFile.ToString().Replace([System.IO.Path]::GetExtension($outputFile), ".xlsx")
+			Path	         = $xlOutput
 			WorkSheetName = $wsName
 			TableStyle    = 'Medium15'
 			StartRow	    = 2
@@ -287,14 +348,49 @@ finally
 			BoldTopRow    = $true
 			PassThru	    = $true
 		}
+		
+		$headerParams1 = @{
+			Bold			     = $true
+			VerticalAlignment   = 'Center'
+			HorizontalAlignment = 'Center'
+		}
+		
+		$headerParams2 = @{
+			Bold			     = $true
+			VerticalAlignment   = 'Center'
+			HorizontalAlignment = 'Left'
+		}
+		
+		$setParams = @{
+			WrapText            = $true
+			VerticalAlignment   = 'Bottom'
+			HorizontalAlignment = 'Left'
+		}
+		
+		$titleParams = @{
+			FontColor         = 'White'
+			FontSize	        = 16
+			Bold		        = $true
+			BackgroundColor   = 'Black'
+			BackgroundPattern = 'Solid'
+		}
+		
+		$xl = $dtSLB | Select-Object $colToExport | Export-Excel @xlParams
+		$Sheet = $xl.Workbook.Worksheets[$wsName]
+		$lastRow = $siteSheet.Dimension.End.Row
+		
+		Set-ExcelRange -Range $Sheet.Cells["A1"] -Value "$($DSForestName) Active Directory Site-Link Bridge Configuration" @titleParams
+		Set-ExcelRange -Range $Sheet.Cells["A2"] @headerParams1
+		Set-ExcelRange -Range $Sheet.Cells["B2:Z2"] @headerParams2
+		Set-ExcelRange -Range $Sheet.Cells["A3:D$($lastRow)"] @setParams
+		
+		Export-Excel  -WorksheetName $wsName -FreezePane 3, 0 -ExcelPackage $xl -AutoSize
+		
 	}
-	
-	$xl = $dtSLB | Select-Object $colToExport | Sort-Object -Property "Site Link Bridge Name" | Export-Excel @xlParams
-	$Sheet = $xl.Workbook.Worksheets["AD Site-Link Bridge Config"]
-	Set-ExcelRange -Range $Sheet.Cells["A2:Z2"] -WrapText -HorizontalAlignment Center -VerticalAlignment Center -AutoFit
-	$cols = $Sheet.Dimension.Columns
-	Set-ExcelRange -Range $Sheet.Cells["A3:Z$($cols)"] -Wraptext -HorizontalAlignment Left -VerticalAlignment Bottom
-	Export-Excel -ExcelPackage $xl -WorksheetName $wsName -FreezePane 3, 0 -Title "$($DSForestName) Active Directory Site-Link Bridge Configuration" -TitleBold -TitleSize 16
+	else
+	{
+		Write-Warning -Message ("No Active Directory Site Link Bridges are present in: {0}" -f $DSForestName)
+	}
 }
 
 #EndRegion

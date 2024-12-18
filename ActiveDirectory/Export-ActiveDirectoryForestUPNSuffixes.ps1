@@ -36,24 +36,32 @@
 		THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE
 		ENTIRE RISK OF THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS
 		WITH THE USER.
+	
+	.LINK
+		https://github.com/dfinke/ImportExcel
+	
+	.LINK
+		https://www.powershellgallery.com/packages/HelperFunctions/
 #>
-[CmdletBinding(PositionalBinding = $false)]
+	[CmdletBinding(PositionalBinding = $false)]
 param
 (
 	[Parameter(Position = 0,
 	           HelpMessage = 'Enter AD forest name to gather info. on.')]
 	[ValidateNotNullOrEmpty()]
-	[string]
+	[string[]]
 	$ForestName,
 	[Parameter(Position = 1,
-	           HelpMessage = 'Enter PS credential to connecct to AD forest with.')]
-	[ValidateNotNullOrEmpty()]
-	[pscredential]
-	$Credential,
+	           HelpMessage = 'Enter credential for remote forest.')]
+[System.Management.Automation.Credential()]
+	[ValidateNotNull()]
+	[System.Management.Automation.PsCredential]
+	$Credential = [System.Management.Automation.PSCredential]::Empty,
 	[Parameter(Mandatory = $true,
-	           Position = 2)]
-	[ValidateNotNullOrEmpty()]
+	           Position = 2,
+	           HelpMessage = 'Specify the file output format you desire.')]
 	[ValidateSet('CSV', 'Excel', IgnoreCase = $true)]
+	[ValidateNotNullOrEmpty()]
 	[string]
 	$OutputFormat
 )
@@ -64,13 +72,21 @@ param
 
 #region Modules
 #Check if required module is loaded, if not load import it
-Try
+try
 {
-	Import-Module -Name ActiveDirectory -ErrorAction Stop
+	Import-Module -Name ActiveDirectory -Force -ErrorAction Stop
 }
-Catch
+catch
 {
-	Throw "Active Directory module could not be loaded. $($_.Exception.Message)";
+	try
+	{
+		Import-Module C:\Windows\System32\WindowsPowerShell\v1.0\Modules\ActiveDirectory\ActiveDirectory.psd1 -ErrorAction Stop
+	}
+	catch
+	{
+		throw "Active Directory module could not be loaded. $($_.Exception.Message)"
+	}
+	
 }
 
 try
@@ -126,17 +142,22 @@ $forestProperties = @("Name", "UPNSuffixes")
 
 
 
+
+
+
+
 #Region Script
 $Error.Clear()
 try
 {
+	# Enable TLS 1.2 and 1.3
 	try
 	{
 		#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
 		if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls12')
 		{
-		    Write-Verbose -Message 'Adding support for TLS 1.2'
-		    [Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls12
+			Write-Verbose -Message 'Adding support for TLS 1.2'
+			[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls12
 		}
 	}
 	catch
@@ -144,6 +165,52 @@ try
 		Write-Warning -Message 'Adding TLS 1.2 to supported security protocols was unsuccessful.'
 	}
 	
+	try
+	{
+		$localComputer = Get-CimInstance -ClassName CIM_ComputerSystem -Namespace 'root\CIMv2' -ErrorAction Stop
+	}
+	catch
+	{
+		$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+		Write-Error $errorMessage -ErrorAction Continue
+	}
+	   
+	if ($null -ne $localComputer.Name)   
+	{
+		if (($localComputer.Caption -match "Windows 11") -eq $true) {
+			try {
+				#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
+				if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls13') {
+					Write-Verbose -Message 'Adding support for TLS 1.3'
+					[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls13
+				}
+			}
+			catch {
+				Write-Warning -Message 'Adding TLS 1.3 to supported security protocols was unsuccessful.'
+			}
+		}
+		elseif (($localComputer.Caption -match "Server 2022") -eq $true) {
+			try {
+				#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
+				if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls13') {
+					Write-Verbose -Message 'Adding support for TLS 1.3'
+					[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls13
+				}
+			}
+			catch {
+				Write-Warning -Message 'Adding TLS 1.3 to supported security protocols was unsuccessful.'
+			}
+		}
+	}
+	
+	if (($PSBoundParameters.ContainsKey('ForestName')) -and ($null -ne $PSBoundParameters["ForestName"]))
+	{
+		$ForestName = $ForestName -split (",")
+	}
+	else
+	{
+		$ForestName = [System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest().Name
+	}
 	
 	#Region Forest Config
 	foreach ($Forest in $ForestName)
@@ -184,7 +251,7 @@ try
 		if ($DSForest.UPNSuffixes.Count -ge 1)
 		{
 			#Create data table and add columns
-			$upnTblName = "$($DSForestName)_Information"
+			$upnTblName = "tblADForestUPNs"
 			$upnHeaders = ConvertFrom-Csv -InputObject $upnHeadersCsv
 			
 			try
@@ -247,35 +314,65 @@ finally
 	$colToExport = $upnHeaders.ColumnName
 	if ($upnTable.Rows.Count -ge 1)
 	{
+		$outputFile = "{0}\{1}_{2}_Active_Directory_Forest_UPNSuffix_List.csv" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $DSForestName
 		switch ($PSBoundParameters["OutputFormat"])
 		{
 			"CSV" {
 				Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f (Get-UTCTime).ToString($dtmFormatString))
-				$outputFile = "{0}\{1}_{2}_Active_Directory_UPNSuffix_List.csv" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $DSForestName
 				$upnTable | Select-Object $colToExport | Export-Csv -Path $outputFile -NoTypeInformation
 			}
 			"Excel" {
 				Write-Verbose -Message ("[{0} UTC] Exporting data tables to Excel spreadsheet tabs." -f $(Get-UTCTime).ToString($dtmFormatString))
-				$outputFile = "{0}\{1}_{2}_Active_Directory_UPNSuffix_List.xlsx" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $DSForestName
+				$xlOutput = $OutputFile.ToString().Replace([System.IO.Path]::GetExtension($OutputFile), ".xlsx")
 				[string]$wsName = "AD Forest UPN List"
 				$xlParams = @{
-					Path	        = $outputFile
+					Path	         = $xlOutput
 					WorkSheetName = $wsName
-					TableStyle = 'Medium15'
-					StartRow     = 2
-					StartColumn  = 1
-					AutoSize   = $true
-					AutoFilter   = $true
-					BoldTopRow   = $true
-					PassThru = $true
+					TableStyle    = 'Medium15'
+					StartRow	    = 2
+					StartColumn   = 1
+					AutoSize	    = $true
+					AutoFilter    = $true
+					BoldTopRow    = $true
+					PassThru	    = $true
 				}
-
-				$xl = $upnTable | Select-Object $colToExport | Sort-Object -Property "Forest Name" | Export-Excel @xlParams
-				$Sheet = $xl.Workbook.Worksheets["AD Forest UPN List"]
-				Set-ExcelRange -Range $Sheet.Cells["A2:Z2"] -WrapText -HorizontalAlignment Center -VerticalAlignment Center -AutoFit
-				$cols = $Sheet.Dimension.Columns
-				Set-ExcelRange -Range $Sheet.Cells["A3:Z$($cols)"] -Wraptext -HorizontalAlignment Left -VerticalAlignment Bottom
-				Export-Excel -ExcelPackage $xl -WorksheetName $wsName -FreezePane 3, 0 -Title "$($DSForestName) Active Directory UPN Suffix List" -TitleBold -TitleSize 16
+				
+				$headerParams1 = @{
+					Bold			     = $true
+					VerticalAlignment   = 'Center'
+					HorizontalAlignment = 'Center'
+				}
+				
+				$headerParams2 = @{
+					Bold			     = $true
+					VerticalAlignment   = 'Center'
+					HorizontalAlignment = 'Left'
+				}
+				
+				$setParams = @{
+					VerticalAlignment   = 'Bottom'
+					HorizontalAlignment = 'Left'
+					ErrorAction         = 'SilentlyContinue'
+				}
+				
+				$titleParams = @{
+					FontColor         = 'White'
+					FontSize	        = 16
+					Bold		        = $true
+					BackgroundColor   = 'Black'
+					BackgroundPattern = 'Solid'
+				}
+				
+				$xl = $upnTable | Select-Object $colToExport | Export-Excel @xlParams
+				$Sheet = $xl.Workbook.Worksheets[$wsName]
+				$lastRow = $siteSheet.Dimension.End.Row
+		
+				Set-ExcelRange -Range $Sheet.Cells["A1"] -Value "$($DSForestName) Active Directory UPN Suffix List" @titleParams
+				Set-ExcelRange -Range $Sheet.Cells["A2"] @headerParams1
+				Set-ExcelRange -Range $Sheet.Cells["B2:Z2"] @headerParams2
+				Set-ExcelRange -Range $Sheet.Cells["A3:B$($lastRow)"] @setParams
+				
+				Export-Excel -ExcelPackage $xl -AutoSize -FreezePane 3, 0 -WorksheetName $wsName
 			}
 		} #end Switch
 		

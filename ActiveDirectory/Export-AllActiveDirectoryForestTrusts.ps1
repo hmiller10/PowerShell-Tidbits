@@ -3,30 +3,34 @@
 #Requires -RunAsAdministrator
 <#
 
-.NOTES
-#------------------------------------------------------------------------------
-#
-# THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE
-# ENTIRE RISK OF THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS
-# WITH THE USER.
-#
-#------------------------------------------------------------------------------
-.SYNOPSIS
+	.SYNOPSIS
 	Export trust information for all trusts in an AD forest
 	
-.DESCRIPTION
+	.DESCRIPTION
 	This script gathers information on Active Directory trusts within the AD
 	forest in parallel from which the script is run. 	The information is
 	written to a datatableand then exported to a spreadsheet for artifact collection.
 	
-.OUTPUTS
+	.OUTPUTS
+	CSV file containing forest/domain trust information
 	Excel spreasheet containing forest/domain trust information
 	
-.EXAMPLE 
+	.EXAMPLE 
 	PS C:\>.\Export-ActiveDirectoryTrusts.ps1
 	
-.EXAMPLE 
+	.EXAMPLE 
 	PS C:\>.\Export-ActiveDirectoryTrusts.ps1 -ForestName myForest.com -Credential (Get-Credential)
+	
+	.NOTES
+		THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE
+		ENTIRE RISK OF THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS
+		WITH THE USER.
+	
+	.LINK
+		https://github.com/dfinke/ImportExcel
+	
+	.LINK
+		https://www.powershellgallery.com/packages/HelperFunctions/
 #>
 
 ###########################################################################
@@ -34,12 +38,10 @@
 #
 # AUTHOR:  Heather Miller
 #
-# VERSION HISTORY:
-# 3.0 11/20/2023 - Added error handling and credential support
-#
+# VERSION HISTORY: 5.0 - Reformatted Excel output to provide cleaner report
+# presentation
 # 
-###########################################################################
-
+############################################################################
 param
 (
 	[Parameter(Position = 0,
@@ -48,8 +50,9 @@ param
 	[string[]]$ForestName,
 	[Parameter(Position = 1,
 			 HelpMessage = 'Enter PS credential to connecct to AD forest with.')]
-	[ValidateNotNullOrEmpty()]
-	[pscredential]$Credential
+	[ValidateNotNull()]
+	[System.Management.Automation.PsCredential][System.Management.Automation.Credential()]
+	$Credential = [System.Management.Automation.PSCredential]::Empty
 )
 
 #Region Modules
@@ -151,17 +154,20 @@ $dtmFileFormatString = "yyyy-MM-dd_HH-mm-ss"
 
 
 
-#region Scripts
+
+
+#region Script
 $Error.Clear()
 try
 {
+	# Enable TLS 1.2 and 1.3
 	try
 	{
 		#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
 		if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls12')
 		{
-		    Write-Verbose -Message 'Adding support for TLS 1.2'
-		    [Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls12
+			Write-Verbose -Message 'Adding support for TLS 1.2'
+			[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls12
 		}
 	}
 	catch
@@ -169,8 +175,46 @@ try
 		Write-Warning -Message 'Adding TLS 1.2 to supported security protocols was unsuccessful.'
 	}
 	
+	try
+	{
+		$localComputer = Get-CimInstance -ClassName CIM_ComputerSystem -Namespace 'root\CIMv2' -ErrorAction Stop
+	}
+	catch
+	{
+		$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+		Write-Error $errorMessage -ErrorAction Continue
+	}
+	   
+	if ($null -ne $localComputer.Name)   
+	{
+		if (($localComputer.Caption -match "Windows 11") -eq $true) {
+			try {
+				#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
+				if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls13') {
+					Write-Verbose -Message 'Adding support for TLS 1.3'
+					[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls13
+				}
+			}
+			catch {
+				Write-Warning -Message 'Adding TLS 1.3 to supported security protocols was unsuccessful.'
+			}
+		}
+		elseif (($localComputer.Caption -match "Server 2022") -eq $true) {
+			try {
+				#https://docs.microsoft.com/en-us/dotnet/api/system.net.securityprotocoltype?view=netcore-2.0#System_Net_SecurityProtocolType_SystemDefault
+				if ($PSVersionTable.PSVersion.Major -lt 6 -and [Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls13') {
+					Write-Verbose -Message 'Adding support for TLS 1.3'
+					[Net.ServicePointManager]::SecurityProtocol += [Net.SecurityProtocolType]::Tls13
+				}
+			}
+			catch {
+				Write-Warning -Message 'Adding TLS 1.3 to supported security protocols was unsuccessful.'
+			}
+		}
+	}
+	
 	#Create data table and add columns
-	$trustTblName = "Forest_Domains_Trust_Info"
+	$trustTblName = "tblADForestTrusts"
 	$trustHeaders = ConvertFrom-Csv -InputObject $trustHeadersCsv
 	try
 	{
@@ -265,7 +309,7 @@ try
 			
 			if (($PSBoundParameters.ContainsKey('Credential')) -and ($null -ne $PSBoundParameters["Credential"]))
 			{
-				$trustParams.Add('AuthType', 'Negotitate')
+				$trustParams.Add('AuthType', 'Negotiate')
 				$trustParams.Add('Credential', $Credential)
 			}
 			
@@ -286,53 +330,59 @@ try
 			
 			if (($trusts.Count -ge 1) -and ($null -ne $trusts))
 			{
-				if ($domainInfo.Name -ne ([System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().Name.ToString()))
+				if (($localComputer.Name -eq $thisHost) -and ($localComputer.DomainRole -gt 3))
 				{
 					try
 					{
-						$s = New-CimSession -Authentication Negotiate -ComputerName $pdcFsmo -Credential $Credential -ErrorAction SilentlyContinue
-						if ($? -eq $false)
-						{
-							$s = New-CimSession -Authentication Negotiate -ComputerName $domDNS -Credential $Credential -ErrorAction Stop
-						}
+						$trustStatus = Get-CimInstance -Namespace $ns -Query "Select * from Microsoft_DomainTrustStatus" -ErrorAction Stop
+
 					}
 					catch
 					{
 						$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
-						Write-Error $errorMessage -ErrorAction Continue
-					}
-					
-					try
-					{
-						if ($null -ne $s.Name)
-						{
-							$trustStatus = Get-CimInstance -CimSession $s -Namespace 'root\MicrosoftActiveDirectory' -Query "Select * from Microsoft_DomainTrustStatus" -ErrorAction SilentlyContinue -ErrorVariable CIMError
-						}
-						
-					}
-					catch
-					{
-						$errorMessage = "{0}: {1}" -f $CIMError[0], $CIMError[0].InvocationInfo.PositionMessage
-						Write-Error $errorMessage -ErrorAction Continue
+						Write-Error $errorMessage -ErrorAction Stop
 					}
 				}
 				else
 				{
-					try
+					if (($PSBoundParameters.ContainsKey('Credential')) -and ($null -ne $PSBoundParameters["Credential"]))
 					{
-						
-						$trustStatus = Get-CimInstance -ComputerName $pdcFSMO -Namespace 'root\MicrosoftActiveDirectory' -Query "Select * from Microsoft_DomainTrustStatus" -ErrorAction SilentlyContinue -ErrorVariable CIMError
-						if ($? -eq $false)
+						try
 						{
-							$trustStatus = Get-CimInstance -ComputerName $domDNS -Namespace 'root\MicrosoftActiveDirectory' -Query "Select * from Microsoft_DomainTrustStatus" -ErrorAction SilentlyContinue -ErrorVariable CIMError
+							$cimS = Get-MyNewCimSession -ServerName $pdcFSMO -Credential $Credential
 						}
-						
+						catch
+						{
+							$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+							Write-Error $errorMessage -ErrorAction Stop
+						}
 					}
-					catch
+					else
 					{
-						$errorMessage = "{0}: {1}" -f $CIMError[0], $CIMError[0].InvocationInfo.PositionMessage
-						Write-Error $errorMessage -ErrorAction Continue
+						try
+						{
+							$cimS = Get-MyNewCimSession -ServerName $pdcFSMO
+						}
+						catch
+						{
+							$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+							Write-Error $errorMessage -ErrorAction Stop
+						}					
 					}
+					
+					if ($null -ne $cimS.Name)
+					{
+						try
+						{
+							$trustStatus = Get-CimInstance -CimSession $cimS -Namespace $ns -Query "Select * from Microsoft_DomainTrustStatus" -ErrorAction Stop
+						}
+						catch
+						{
+							$errorMessage = "{0}: {1}" -f $Error[0], $Error[0].InvocationInfo.PositionMessage
+							Write-Error $errorMessage -ErrorAction Continue
+						}
+					}
+					
 				}
 				
 				foreach ($t in $trusts)
@@ -441,29 +491,64 @@ finally
 		
 		Write-Verbose ("[{0} UTC] Exporting results data to CSV, please wait..." -f (Get-UTCTime).ToString($dtmFormatString))
 		$outputFile = "{0}\{1}-{2}_Active_Directory_Forest_Trust_Info.csv" -f $rptFolder, (Get-UTCTime).ToString($dtmFileFormatString), $DSForestName
+		$xlOutput = $OutputFile.ToString().Replace([System.IO.Path]::GetExtension($OutputFile), ".xlsx")
 		$trustTable | Select-Object $ttColToExport | Export-Csv -Path $outputFile -NoTypeInformation
 		
 		Write-Verbose ("[{0} UTC] Exporting results data in Excel format, please wait..." -f $(Get-UTCTime).ToString($dtmFormatString))
 		$wsName = "AD Trust Configuration"
 		$xlParams = @{
-			Path	        = $outputFile = "{0}\{1}_{2}_Active_Directory_Forest_Trust_Info.xlsx" -f $rptFolder, $(Get-UTCTime).ToString($dtmFileFormatString), $DSForestName
+			Path	         = $xlOutput
 			WorkSheetName = $wsName
-			TableStyle = 'Medium15'
-			StartRow = 2
-			StartColumn = 1
-			AutoSize = $true
-			AutoFilter = $true
-			BoldTopRow = $true
-			PassThru = $true
+			TableStyle    = 'Medium15'
+			StartRow	    = 2
+			StartColumn   = 1
+			AutoSize	    = $true
+			AutoFilter    = $true
+			BoldTopRow    = $true
+			PassThru	    = $true
+		}
+		
+		$headerParams1 = @{
+			Bold			     = $true
+			VerticalAlignment   = 'Center'
+			HorizontalAlignment = 'Center'
+		}
+		
+		$headerParams2 = @{
+			Bold			     = $true
+			VerticalAlignment   = 'Center'
+			HorizontalAlignment = 'Left'
+		}
+		
+		$setParams = @{
+			VerticalAlignment   = 'Bottom'
+			HorizontalAlignment = 'Left'
+		}
+		
+		$titleParams = @{
+			FontColor         = 'White'
+			FontSize	        = 16
+			Bold		        = $true
+			BackgroundColor   = 'Black'
+			BackgroundPattern = 'Solid'
 		}
 		
 		$xl = $trustTable | Select-Object $ttColToExport | Export-Excel @xlParams
-		$Sheet = $xl.Workbook.Worksheets["AD Trust Configuration"]
-		Set-ExcelRange -Range $Sheet.Cells["A2:Z2"] -WrapText -HorizontalAlignment Center -VerticalAlignment Center -AutoFit
-		$cols = $Sheet.Dimension.Columns
-		Set-ExcelRange -Range $Sheet.Cells["A3:Z$($cols)"] -Wraptext -HorizontalAlignment Left -VerticalAlignment Bottom
-		Export-Excel -ExcelPackage $xl -WorksheetName $wsName -FreezePane 3, 0 -Title "Active Directory Trust Configuration" -TitleBold -TitleSize 16
+		$Sheet = $xl.Workbook.Worksheets[$wsName]
+		$lastRow = $siteSheet.Dimension.End.Row
+		
+		Set-ExcelRange -Range $Sheet.Cells["A1"] -Value "$($DSForestName) Active Directory Forest Trust(s) Configuration" @titleParams
+		Set-ExcelRange -Range $Sheet.Cells["A2"] @headerParams1
+		Set-ExcelRange -Range $Sheet.Cells["B2:Z2"] @headerParams2
+		Set-ExcelRange -Range $Sheet.Cells["A3:Q$($lastRow)"] @setParams
+		
+		Export-Excel -ExcelPackage $xl -AutoSize -FreezePane 3, 0 -WorksheetName $wsName
+        
 	} #end If
 	
+	if ($null -ne $cimS.Name)
+	{
+		Remove-CimSession -Id $cimS.Id
+	}
 }
 #EndRegion

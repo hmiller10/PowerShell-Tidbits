@@ -377,7 +377,7 @@ try
 			
 			$xl = $dtSL | Select-Object $colToExport | Sort-Object -Property "Site Link Name" | Export-Excel @xlParams
 			$Sheet = $xl.Workbook.Worksheets[$wsName]
-			$lastRow = $siteSheet.Dimension.End.Row
+			$lastRow = $Sheet.Dimension.End.Row
 			
 			Set-ExcelRange -Range $Sheet.Cells["A1"] -Value "$($DSForestName) Active Directory Site-Link Configuration" @titleParams
 			Set-ExcelRange -Range $Sheet.Cells["A2"] @headerParams1

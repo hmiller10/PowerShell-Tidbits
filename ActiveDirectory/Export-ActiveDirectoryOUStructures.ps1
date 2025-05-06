@@ -124,7 +124,6 @@ catch
 #EndRegion
 
 #region Variables
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $rptFolder = 'E:\Reports'
 
@@ -288,6 +287,7 @@ begin
 }#end function Get-ADOUPerms
 
 #EndRegion
+
 
 
 
@@ -653,7 +653,7 @@ finally
 	
 	$xl = $colResults | Export-Excel @xlParams
 	$Sheet = $xl.Workbook.Worksheets[$wsName]
-	$lastRow = $siteSheet.Dimension.End.Row
+	$lastRow = $Sheet.Dimension.End.Row
 	
 	Set-ExcelRange -Range $Sheet.Cells["A1"] -Value "$($strDomain) Active Directory OU Configuration" @titleParams
 	Set-ExcelRange -Range $Sheet.Cells["A2"] @headerParams1

@@ -365,7 +365,7 @@ finally
 				
 				$xl = $upnTable | Select-Object $colToExport | Export-Excel @xlParams
 				$Sheet = $xl.Workbook.Worksheets[$wsName]
-				$lastRow = $siteSheet.Dimension.End.Row
+				$lastRow = $Sheet.Dimension.End.Row
 		
 				Set-ExcelRange -Range $Sheet.Cells["A1"] -Value "$($DSForestName) Active Directory UPN Suffix List" @titleParams
 				Set-ExcelRange -Range $Sheet.Cells["A2"] @headerParams1

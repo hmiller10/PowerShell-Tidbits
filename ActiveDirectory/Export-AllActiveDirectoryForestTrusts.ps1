@@ -235,11 +235,9 @@ try
 	{
 		$ForestName = [System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest().Name.ToString()
 	}
-	
-	
+
 	foreach ($Forest in $ForestName)
 	{
-	
 		$ForestParams = @{
 			Identity = $Forest
 			Server = $Forest
@@ -523,6 +521,7 @@ finally
 		$setParams = @{
 			VerticalAlignment   = 'Bottom'
 			HorizontalAlignment = 'Left'
+			ErrorActio          = 'SilentlyContinue'
 		}
 		
 		$titleParams = @{
@@ -535,7 +534,7 @@ finally
 		
 		$xl = $trustTable | Select-Object $ttColToExport | Export-Excel @xlParams
 		$Sheet = $xl.Workbook.Worksheets[$wsName]
-		$lastRow = $siteSheet.Dimension.End.Row
+		$lastRow = $Sheet.Dimension.End.Row
 		
 		Set-ExcelRange -Range $Sheet.Cells["A1"] -Value "$($DSForestName) Active Directory Forest Trust(s) Configuration" @titleParams
 		Set-ExcelRange -Range $Sheet.Cells["A2"] @headerParams1

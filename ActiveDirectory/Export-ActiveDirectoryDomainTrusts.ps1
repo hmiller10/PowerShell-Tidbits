@@ -356,8 +356,7 @@ try
 				}
 				
 			}
-			
-			
+
 			foreach ($t in $trusts)
 			{
 				$trustSource = Get-FQDNfromDN ($t).Source
@@ -508,7 +507,7 @@ finally
 		
 		$xl = $trustTable | Select-Object $ttColToExport | Export-Excel @xlParams
 		$Sheet = $xl.Workbook.Worksheets[$wsName]
-		$lastRow = $siteSheet.Dimension.End.Row
+		$lastRow = $Sheet.Dimension.End.Row
 		
 		Set-ExcelRange -Range $Sheet.Cells["A1"] -Value "Active Directory Domain Trust Configuration" @titleParams
 		Set-ExcelRange -Range $Sheet.Cells["A2"] @headerParams1

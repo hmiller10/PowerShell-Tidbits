@@ -407,9 +407,9 @@ finally
 	}
 	
 	$setParams = @{
-		Wraptext		     = $true
 		VerticalAlignment   = 'Bottom'
 		HorizontalAlignment = 'Left'
+		ErrorAction         = 'SilentlyContinue'
 	}
 	
 	$titleParams = @{
@@ -422,7 +422,7 @@ finally
 	
 	$xl = $domPPTable | Select-Object $ColToExport | Export-Excel @xlParams
 	$Sheet = $xl.Workbook.Worksheets[$wsName]
-	$lastRow = $siteSheet.Dimension.End.Row
+	$lastRow = $Sheet.Dimension.End.Row
 	
 	Set-ExcelRange -Range $Sheet.Cells["A1"] -Value "$($DSForestName) Active Directory Domain Password Policies" @titleParams
 	Set-ExcelRange -Range $Sheet.Cells["A2"] @headerParams1

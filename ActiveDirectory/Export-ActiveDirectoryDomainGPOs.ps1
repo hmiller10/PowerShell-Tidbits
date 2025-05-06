@@ -461,7 +461,6 @@ function Get-TimeStamp
 
 
 
-
 #Region Script
 $Error.Clear()
 try
@@ -804,9 +803,9 @@ finally
 		}
 		
 		$setParams = @{
-			Wraptext		     = $true
 			VerticalAlignment   = 'Bottom'
 			HorizontalAlignment = 'Left'
+			ErrorAction         = 'SilentlyContinue'
 		}
 		
 		$titleParams = @{
@@ -819,7 +818,7 @@ finally
 		
 		$xl = $domTable |  Select-Object -Property $ColToExport -ExcludeProperty PSComputerName, RunspaceID, PSShowComputerName  | Export-Excel @xlParams
 		$Sheet = $xl.Workbook.Worksheets[$wsName]
-		$lastRow = $siteSheet.Dimension.End.Row
+		$lastRow = $Sheet.Dimension.End.Row
 	
 		Set-ExcelRange -Range $Sheet.Cells["A1"] -Value "Active Directory Domain Group Policy Configuration" @titleParams
 		Set-ExcelRange -Range $Sheet.Cells["A2"] @headerParams1

@@ -633,9 +633,9 @@ finally
 				}
 				
 				$setParams = @{
-					WrapText            = $true
 					VerticalAlignment   = 'Bottom'
 					HorizontalAlignment = 'Left'
+					ErrorAction         = 'SilentlyContinue'
 				}
 				
 				$titleParams = @{
@@ -649,7 +649,7 @@ finally
 				$xl = $dtSites | Select-Object $colToExport | Sort-Object -Property "Site Name" | Export-Excel @xlParams
 				$Sheet = $xl.Workbook.Worksheets[$wsName]
 				$Sheet.Cells["A1"].Value = 
-				$lastRow = $siteSheet.Dimension.End.Row
+				$lastRow = $Sheet.Dimension.End.Row
 				
 				Set-ExcelRange -Range $Sheet.Cells["A1"] -Value "$($DSForestName) Active Directory Site(s) Configuration" @titleParams
 				Set-ExcelRange -Range $Sheet.Cells["A2"] @headerParams1
